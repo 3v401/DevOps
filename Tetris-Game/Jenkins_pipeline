@@ -1,6 +1,6 @@
 node {
 	stage('Git checkout'){
-		git 'https://github.com/.../DevOps.git'
+		git 'https://github.com/3v401/DevOps.git'
 	}
 	stage('Sending Docker file to Ansible server over ssh'){
 		sshagent(['ansible_demo']){

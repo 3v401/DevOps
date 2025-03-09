@@ -40,4 +40,4 @@ RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 CMD ["apache2ctl", "-D", "FOREGROUND"]
 
 # Expose port 80 for HTTP traffic
-EXPOSE 80
+EXPOSE 80, 22
