@@ -7,7 +7,7 @@ apt install -y openjdk-17-jdk
 apt install -y jenkins
 systemctl status jenkins
 ufw status
-ufw allow OpenSSH && ufw enable
+ufw allow OpenSSH && yes | ufw enable
 ufw allow 8080
 ufw allow 80
 ufw allow 443

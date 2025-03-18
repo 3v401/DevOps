@@ -39,5 +39,6 @@ RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 # -D FOREGROUND = Keeps it running so the container doesn't stop
 CMD ["apache2ctl", "-D", "FOREGROUND"]
 
-# Expose port 80 for HTTP traffic
-EXPOSE 80, 22
+# Expose port 80 and for HTTP traffic
+EXPOSE 80
+EXPOSE 22
