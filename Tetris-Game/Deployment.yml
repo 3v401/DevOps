@@ -1,0 +1,24 @@
+# Kubernetes Deployment manifest to deploy/manage a replica set of the application's pods.
+# Deploy 3 Pods running the containerized application (tetris-container)
+# and expose port 8080 in each Pod.
+
+apiVersion: apps/v1                   # Version of the Kubernetes API to use
+kind: Deployment
+metadata:
+  name: tetris-deployment
+spec:
+  replicas: 3                         # Deploys 3 replicas (Pods) of the application
+  selector:
+    matchLabels:
+      app: tetris                     # Pods with the label 'app: tetris' will be managed by this Deployment
+  template:
+    metadata:
+      labels:
+        app: tetris                   # Labels added to Pods created by this Deployment
+    spec:
+      containers:
+        - name: tetris-container      # Name of the container
+          image: dockerwhale123whaledocker/jenkins-pipeline
+          # The Docker image to use for the container (from DockerHub)
+          ports:
+            - containerPort: 8080     # The container will listen on port 8080 internally
