@@ -42,3 +42,4 @@ CMD ["apache2ctl", "-D", "FOREGROUND"]
 # Expose port 80 and for HTTP traffic
 EXPOSE 80
 EXPOSE 22
+EXPOSE 8080
