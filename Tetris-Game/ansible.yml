@@ -5,9 +5,13 @@
   become: true         # Use sudo/root privileges on remote machines
   tasks:
     - name: Apply deployment
-      command: kubectl apply -f /home/ubuntu/Deployment.yml
+      command: kubectl apply -f /home/ubuntu/Deployment.yml --kubeconfig /home/ubuntu/.kube/config
       # 'kubectl apply' to create/update the Deployment object in Kubernetes
-    
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
     - name: Apply service
-      command: kubectl apply -f /home/ubuntu/Service.yml
+      command: kubectl apply -f /home/ubuntu/Service.yml --kubeconfig /home/ubuntu/.kube/config
       # 'kubectl apply' to create/update the Service object in Kubernetes
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
