@@ -1,5 +1,5 @@
 # Secure CI/CD pipeline for containerized Tetris Delivery on AWS
-#### (Post under development)
+#### (Post explanation under development)
 ##### Project result:
 
 <p align="center">
