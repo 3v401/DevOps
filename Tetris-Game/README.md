@@ -15,7 +15,26 @@
 2. CI/CD
 3. Playing Tetris
 
-# Setting up servers
+# Setting up
+
+| Requirements         | Inbound Rules                                                                 | Outbound Rules      | IAM Roles           |
+|--------------------|--------------------------------------------------------------------------------|---------------------|----------------------|
+| **Jenkins-server** | SSH my IP                                                                      | All traffic 0.0.0.0/0 | No                  |
+|                    | SSH Ansible-server internal IP                                                |                     |                      |
+|                    | SSH Kubernetes-server internal IP                                             |                     |                      |
+|                    | SSH Github Webhook IPv4                                                       |                     |                      |
+|                    | SSH Github Webhook IPv6                                                       |                     |                      |
+| **Ansible-server** | SSH my IP                                                                      | All traffic 0.0.0.0/0 | No                  |
+|                    | SSH Jenkins-server internal IP                                                |                     |                      |
+|                    | SSH Kubernetes-server internal IP                                             |                     |                      |
+| **Kubernetes-server** | SSH my IP                                                                  | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
+|                    | SSH Jenkins-server internal IP                                                |                     |                      |
+|                    | SSH Ansible-server internal IP                                                |                     |                      |
+|                    | Custom TCP 80 my IP                                                           |                     |                      |
+|                    | Custom TCP <kubernetes_nodeport> my IP                                        |                     |                      |
+| **Load Balancer**  | Custom TCP 80 my IP                                                            | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
+|                    | Custom TCP <kubernetes_nodeport> my IP                                        |                     |                      |
+
 
 ## Jenkins server
 
