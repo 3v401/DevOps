@@ -1,0 +1,14 @@
+# Kubernetes Service manifest. It exposes the application internally (and externally, due to NodePort) in the Kubernetes cluster
+
+apiVersion: v1                        # Version of the Kubernetes API
+kind: Service                         # This file creates a Service resource
+metadata:
+  name: tetris-service                # Name of the Service
+spec:
+  selector:
+    app: tetris                       # This Service will target Pods labeled with 'app: tetris'
+  ports:
+    - protocol: TCP                   # Define TCP as the transport protocol
+      port: 80                        # Port the Service will expose inside the cluster
+      targetPort: 3000                # Port on the container to which traffic will be directed
+  type: LoadBalancer                      # To expose the service externally without using an Ingress or LoadBalancer

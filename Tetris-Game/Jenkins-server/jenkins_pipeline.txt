@@ -1,0 +1,56 @@
+node {
+    stage('Git checkout'){
+        git 'https://github.com/3v401/DevOps.git'
+    }
+    stage('Sending Jenkins content to Ansible server over ssh'){
+        sshagent(['ansible_demo']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> '
+            sh 'scp /var/lib/jenkins/workspace/jenkins-pipeline/Tetris-Game/* ubuntu@<ANSIBLE_INTERNAL_IP>:/home/ubuntu '
+        }
+    }
+    stage('Docker build image'){
+        sshagent(['ansible_demo']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> cd /home/ubuntu/'
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image build -t $JOB_NAME:v1.$BUILD_ID .'
+        }
+    }
+    stage('Docker image tagging'){
+        sshagent(['ansible_demo']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> cd /home/ubuntu/'
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image tag $JOB_NAME:v1.$BUILD_ID <DOCKER_USERNAME>/$JOB_NAME:v1.$BUILD_ID '
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image tag $JOB_NAME:v1.$BUILD_ID <DOCKER_USERNAME>/$JOB_NAME:latest '
+        }
+    }
+    stage('Push Docker image to DockerHub'){
+        sshagent(['ansible_demo']){
+            withCredentials([string(credentialsId: 'dockerhub_pass', variable: 'dockerhub_pass')]) {
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker login -u <DOCKER_USERNAME> -p ${dockerhub_pass} '
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image push <DOCKER_USERNAME>/$JOB_NAME:v1.$BUILD_ID '
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image push <DOCKER_USERNAME>/$JOB_NAME:latest '
+            }
+        }
+    }
+    stage('Copy files from Ansible to Kubernetes server'){
+        sshagent(['kubernetes_server']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<K8s_INTERNAL_IP> '
+            sh 'scp /var/lib/jenkins/workspace/jenkins-pipeline/Tetris-Game/* ubuntu@<K8s_INTERNAL_IP>:/home/ubuntu/ '
+        }
+    }
+    stage('Kubernetes Deployment using Ansible'){
+        sshagent(['kubernetes_server']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> cd /home/ubuntu/ '
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> sudo ansible -m ping node '
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> sudo ansible-playbook ansible.yml '
+        }
+    }
+    stage('Apply K8s Manifests') {
+    sshagent(['kubernetes_server']) {
+        sh '''
+            ssh -o StrictHostKeyChecking=no ubuntu@vv "
+                kubectl apply -f /home/ubuntu/Deployment.yml &&
+                kubectl apply -f /home/ubuntu/Service.yml
+            "
+        '''
+    }
+}
+}

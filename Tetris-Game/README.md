@@ -1,5 +1,5 @@
 # Secure CI/CD pipeline for containerized Tetris Delivery on AWS
-#### (Post explanation under development)
+#### (Post under development)
 ##### Project result:
 
 <p align="center">
@@ -15,7 +15,26 @@
 2. CI/CD
 3. Playing Tetris
 
-# Setting up servers
+# Setting up
+
+| Requirements         | Inbound Rules                                                                 | Outbound Rules      | IAM Roles           |
+|--------------------|--------------------------------------------------------------------------------|---------------------|----------------------|
+| **Jenkins-server** | SSH my IP                                                                      | All traffic 0.0.0.0/0 | No                  |
+|                    | SSH Ansible-server internal IP                                                |                     |                      |
+|                    | SSH Kubernetes-server internal IP                                             |                     |                      |
+|                    | SSH Github Webhook IPv4                                                       |                     |                      |
+|                    | SSH Github Webhook IPv6                                                       |                     |                      |
+| **Ansible-server** | SSH my IP                                                                      | All traffic 0.0.0.0/0 | No                  |
+|                    | SSH Jenkins-server internal IP                                                |                     |                      |
+|                    | SSH Kubernetes-server internal IP                                             |                     |                      |
+| **Kubernetes-server** | SSH my IP                                                                  | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
+|                    | SSH Jenkins-server internal IP                                                |                     |                      |
+|                    | SSH Ansible-server internal IP                                                |                     |                      |
+|                    | Custom TCP 80 my IP                                                           |                     |                      |
+|                    | Custom TCP <kubernetes_nodeport> my IP                                        |                     |                      |
+| **Load Balancer**  | Custom TCP 80 my IP                                                            | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
+|                    | Custom TCP <kubernetes_nodeport> my IP                                        |                     |                      |
+
 
 ## Jenkins server
 
@@ -520,11 +539,3 @@ Go to EC2 instances -> Select ansible-server -> Actions -> Security -> Modify IA
 1. Execute: `kubectl apply -f Service.yml`
 2. After that, verify that the LoadBalancer is created: `kubectl get svc`
 
-
-
-----*----
-We need three servers:
-
-1. Jenkins: name: 'jenkins-server', AMI: Ubuntu 24.04 64bit, Storage: 10gb gp3, Key pair (login): ansible | RSA (pem), Network settings: Type 'All traffic' Protocol 'All' Port range '8080' Sourcetype 'My IP' Source 'X.X.X.X/X', t3.micro.
-2. Ansible: name: 'ansible-server', AMI: UBuntu 24.04 64bits, Storage: 10gb gp3, Key pair (login): ansible | RSA (pem), Network settings: Type 'All traffic' Protocol 'All' Port range 'All' Sourcetype 'Anywhere' Source '0.0.0.0/0', t3.micro.
-3. Kubernetes: name: 'kubernetes-server', AMI: Ubuntu 24.04 64bit, Storage: 8gb gp3, Key pair (login): ansible | RSA (pem), Network settings: Type 'All traffic' Protocol 'All' Port range 'All' Sourcetype 'Anywhere' Source '0.0.0.0/0', t3.medium
