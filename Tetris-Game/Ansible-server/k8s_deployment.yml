@@ -1,0 +1,28 @@
+---
+- name: Redeploy Tetris app on Kubernetes
+  hosts: kubernetes_node
+  become: true
+  vars:
+    kubeconfig_path: /home/ubuntu/.kube/config
+    k8s_manifest_path: /home/ubuntu
+
+  tasks:
+    - name: Ensure kubeconfig exists
+      stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_file
+
+    - name: Fail if kubeconfig is missing
+      fail:
+        msg: "Kubeconfig not found at {{ kubeconfig_path }}"
+      when: not kubeconfig_file.stat.exists
+
+    - name: Apply Deployment
+      command: kubectl apply -f {{ k8s_manifest_path }}/Deployment.yml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Apply Service
+      command: kubectl apply -f {{ k8s_manifest_path }}/Service.yml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"

@@ -19,23 +19,24 @@
 
 | Requirements         | Inbound Rules                                        | Description                         | Outbound Rules      | IAM Roles           |
 |--------------------|--------------------------------------------------------| ------------------------|---------------------|----------------------|
-| **Jenkins-server** | SSH my IP                                              |                         | All traffic 0.0.0.0/0 | No                  |
-|                    | SSH Ansible-server internal IP                         |                        |                     |                      |
-|                    | SSH Kubernetes-server internal IP                      |                        |                     |                      |
-|                    | SSH Github Webhook IPv4                                |                        |                     |                      |
-|                    | SSH Github Webhook IPv6                                |                        |                     |                      |
-| **Ansible-server** | SSH <-> my IP                                              |                         | All traffic 0.0.0.0/0 | No                  |
-|                    | SSH Jenkins-server internal IP                         |                        |                     |                      |
-|                    | SSH Kubernetes-server internal IP                      |                        |                     |                      |
-| **Kubernetes-server** | SSH my IP                                           |   SSH connection from my IP                     | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
-|                    | SSH Jenkins-server internal IP                         |                        |                     |                      |
-|                    | SSH Ansible-server internal IP                         |                        |                     |                      |
-|                    | Custom TCP 80 my IP                                    |                        |                     |                      |
-|                    | Custom TCP <kubernetes_nodeport> my IP                 |                        |                     |                      |
-|                    | Custom TCP <kubernetes_nodeport> LB subnet IPs         |                        |                     |                      |
-|                    | Custom TCP 6443 <-> My IP                              |   API Kubernetes       |                     |                      |
-| **Load Balancer**  | Custom TCP 80 my IP                                    |                         | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
-|                    | Custom TCP <kubernetes_nodeport> my IP                 |                        |                     |                      |
+| **Jenkins-server** | SSH + my IP                                              |  SSH connection from my IP to Jenkins-server | All traffic 0.0.0.0/0 | No                  |
+|                    | HTTP 80 + my IP                         |           HTTP connection from my IP to Jenkins-server             |                     |                      |
+|                    | SSH <ANSIBLE_INTERNAL_IP>                         |  SSH connection from Ansible to Jenkins-server                      |                     |                      |
+|                    | SSH <K8s_INTERNAL_IP>                      |         SSH connection from K8s-server to Jenkins-server               |                     |                      |
+|                    | SSH Github Webhook IPv4                                |   SSH connection from IPv4 GitHub Webhooks to Jenkins-server                    |                     |                      |
+|                    | SSH Github Webhook IPv6                                |   SSH connection from IPv6 GitHub Webhooks to Jenkins-server                     |                     |                      |
+| **Ansible-server** | SSH + my IP                                              |    SSH connection from my IP to Ansible-server | All traffic 0.0.0.0/0 | No                  |
+|                    | SSH + <JENKINS_INTERNAL_IP>                         |         SSH connection from Jenkins to Ansible-server |                     |                      |
+|                    | SSH + <K8s_INTERNAL_IP>                      |      SSH connection from K8s-server to Ansible-server                  |                     |                      |
+| **Kubernetes-server** | SSH + my IP                                           |   SSH connection from my IP to K8s-server                     | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
+|                    | SSH + <JENKINS_INTERNAL_IP>                         |        SSH connection from Jenkins to K8s-server |                     |                      |
+|                    | SSH + <ANSIBLE_INTERNAL_IP>                         |        SSH connection from Ansible to K8s-server |                     |                      |
+|                    | HTTP 80 + my IP                                  |   HTTP connection from my IP to K8s-server                     |                     |                      |
+|                    | Custom TCP 31123 + my IP                               |   TCP connection from my IP to K8s-server                     |                     |                      |
+|                    | Custom TCP 31123 + subnet IPs                          |   TCP connection 3 subnets to K8s-server      |                     |                      |
+|                    | Custom TCP 31123 + LB_SG                     |   TCP connection LB Security Group to K8s-server       |                     |                      |
+| **Load Balancer**  | Custom TCP 80 + my IP                                    |    HTTP connection from my IP to CLB (Access site)                     | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
+|                    | Custom TCP <LB_NODEPORT> + my IP                 |      TCP connection from my IP to CLB                  |                     |                      |
 
 ## Jenkins server
 
@@ -132,34 +133,25 @@ WantedBy=multi-user.target
 ```
 5. Activate the service again: `sudo systemctl daemon-reload && sudo systemctl enable startup-tasks.service`
 
-## Ansible server
+**Jenkins-server configuration finished.**
 
-(Install Ansible both in Ansible and Kubernetes Server)
+## Ansible server
 
 Ansible is an open-source automation tool used for configuration management, application deployment, and infrastructure orchestration. It allows managing servers and deployments using YAML-based playbooks. In this example, it will execute tasks on a remote server (the Kubernetes node). Instead of manually logging into the Kubernetes server and running kubectl apply or configurations, Ansible automates this process from a central control node (the "Ansible server"). This is typical in environments where infrastructure as code (IaC) and centralized management are required.
 
-For Ansible server set as:
-
-1. Inbound connections: HTTP/HTTPS Anywhere IPv4 (Description: Internet connection -> EC2), SSH Jenkins IP, My IP (Jenkins, My IP connection)
-2. Outbound connections: HTTP/HTTPS Anywhere IPv4 (Description: EC2 -> Internet connection)
+### Ansible installation
 
 For Ansible installation I used the following [tutorial post](https://www.digitalocean.com/community/tutorials/how-to-install-and-configure-ansible-on-ubuntu-20-04).
 1. Activate root user: `sudo su`
 2. Add the Ansible PPA repository: `apt-add-repository ppa:ansible/ansible`
-3. Update package lists to include the new repository and upgrade: `apt update && apt upgrade`
-4. Install Ansible: `apt install ansible`
+3. Update package lists to include the new repository and upgrade: `apt update && apt upgrade -y`
+4. Install Ansible: `apt install ansible -y`
 
-## Kubernetes server
+### Docker installation
 
-Kubernetes (K8s) is an open-source container orchestration platform used for automating deployment, scaling, and management of containerized applications across multiple nodes. For this section we will install Docker and Kubectl.
+Docker is an open-source containerization platform that allows developers to package applications and their dependencies into lightweight, portable containers. For Docker installation I used the following [tutorial post](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-20-04). We will use Docker in Ansible server for: Building Docker image + tagging + pushing image to DockerHub. Then K8s server will download this image from DockerHub and Deploy the game.
 
-### Docker (Install both in Ansible and Kubernetes server)
-
-Docker is an open-source containerization platform that allows developers to package applications and their dependencies into lightweight, portable containers. For Docker installation I used the following [tutorial post](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-20-04).
-
-1. Activate root user: `sudo su`
-2. Update package lists: `apt update`
-3. Install required dependencies for Docker: `apt install apt-transport-https ca-certificates curl software-properties-common`
+3. Install required dependencies for Docker: `apt install apt-transport-https ca-certificates curl software-properties-common -y`
 4. Add the Docker GPG key to verify package authenticity: `curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -`
 
       i. `-fsSL` : Ensures a silent, fail-safe, and secure download.
@@ -168,11 +160,38 @@ Docker is an open-source containerization platform that allows developers to pac
 
 5. Add the official Docker repository to APT sources: `add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"`
 6. Check available Docker versions and repository priority: `apt-cache policy docker-ce`
-7. Install Docker CE (Community Edition): `apt install docker-ce`
+7. Install Docker CE (Community Edition): `apt install docker-ce -y`
 8. Exit root mode and add your user to the docker group: `sudo usermod -aG docker $USER`
 9. Check Docker service status: `systemctl status docker`
 
 ![alt text](pics/pic10.png)
+
+### SSH communication Ansible <-> Kubernetes server
+
+###### Access the Ansible Server
+
+1. Run: `ssh-keygen -t rsa -b 4096 -C "ansible-to-k8s"` and move your files to: `~/.ssh/`.
+2. Activate permissions: `chmod 600 ~/.ssh/ansible-to-k8s && chmod 644 ~/.ssh/ansible-to-k8s.pub`
+3. Show the content of the public key from Ansible: `cat ~/.ssh/ansible-to-k8s.pub`
+4. Copy and paste it in the K8s server. Open the file: `vim ~/.ssh/authorized_keys` and paste the content of `ansible-to-k8s.pub` there.
+5. Restart the ssh2 service in the K8s-server: `sudo systemctl restart ssh`
+6. Go to Ansible-server. Test the ping connection (the Inbound Rule must have been enabled before, ICMP IPv4 K8s <-> Ansible)
+7. Access the K8s-server executing from Ansible-server: `ssh -i ~/.ssh/ansible-to-k8s ubuntu@<K8s_internal_IP>`
+8. Bingo. You must have entered the K8s server from Ansible!
+
+![alt text](pics/pic24.png)
+
+Now, exit your connection from K8s-server and from Ansible-server at `~` ($HOME) create the following file: `vim inventory`. Paste the following content:
+```
+[kubernetes_node]
+<K8s_PRIVATE_IP> ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/ansible-to-k8s
+```
+
+**Ansible-server configuration finished.**
+
+## Kubernetes server
+
+Kubernetes (K8s) is an open-source container orchestration platform used for automating deployment, scaling, and management of containerized applications across multiple nodes. For this section we will install Docker and Kubectl.
 
 ### Kubeadm
 
@@ -196,6 +215,7 @@ containerd config default | sudo tee /etc/containerd/config.toml
 ```
 sudo systemctl restart containerd
 sudo systemctl enable containerd
+sudo systemctl status containerd
 ```
 6. Install Kubernetes tools (kubeadm, kubelet, kubectl):
 ```
@@ -207,9 +227,10 @@ sudo apt-get update
 sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 ```
-7. ~~Initialize Kubernetes cluster: `sudo kubeadm init --pod-network-cidr=10.244.0.0/16`. `10.244.0.0/16` is the default pod network range required by Flannel.~~
-8. ~~If an error is prompted related to missing kernel settings for kubernetes networking (`/proc/sys/net/bridge/bridge-nf-call-iptables` does not exist and `/proc/sys/net/ipv4/ip_forward` is not set to 1) run:~~
+7. Initialize Kubernetes cluster: ` yes if error: sudo kubeadm init --pod-network-cidr=10.244.0.0/16`. `10.244.0.0/16` is the default pod network range required by Flannel.
+8. If an error is prompted related to missing kernel settings for kubernetes networking (`/proc/sys/net/bridge/bridge-nf-call-iptables` does not exist and `/proc/sys/net/ipv4/ip_forward` is not set to 1) run:
 ```
+yes
 sudo modprobe br_netfilter
 echo 'br_netfilter' | sudo tee /etc/modules-load.d/k8s.conf
 
@@ -217,8 +238,8 @@ echo 'net.bridge.bridge-nf-call-iptables=1' | sudo tee /etc/sysctl.d/k8s.conf
 echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.d/k8s.conf
 sudo sysctl --system
 ```
-~~This commands load the br_netfilter module and ensures it's loaded on boot, then sets required kernel params for Kubernetes networking.
-9. Set up kubectl access for your user:~~
+This commands load the br_netfilter module and ensures it's loaded on boot, then sets required kernel params for Kubernetes networking. Rerun ` yes sudo kubeadm init --pod-network-cidr=10.244.0.0/16`.
+9. Set up kubectl access for your user:
 ```
 mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
@@ -237,8 +258,7 @@ In our application, Kubernetes will ask AWS to create an Classic Load Balancer (
 
 For an self-organized K8s EC2 instance being able to create and administrate AWS resources (e.g., LB, EBS volumns, etc) there are two requirements:
 
- 1. ~~Install containerd.~~
- 2. `kube-controller-manager` (control plane) must have `cloud-provider` set to `aws`.
+ 2. `kube-controller-manager` (control plane) must have `cloud-provider` set to `external`.
  3. Install external cloud provider (AWS Cloud Controller Manager, CCM)
  4. The EC2 instance that runs the control plane must have an IAM role with certain permissions.
 
@@ -247,50 +267,36 @@ This way, when K8s (`kube-controller-manager`) calls the AWS API (to create the 
 
 ###### containerd
 
-1. ~~Install via: `sudo apt-get install -y containerd`~~
 2. Verify status: `sudo systemctl status containerd`
-3. ~~Check whether containerd uses `CRI v1`:~~
-```
-sudo mkdir -p /etc/containerd
-containerd config default | sudo tee /etc/containerd/config.toml
-```
-~~4. Open the file and edit: `vim /etc/containerd/config.toml`~~
-```
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-  SystemdCgroup = true
-```
-~~5. Reboot containerd: `sudo systemctl restart containerd`
-6. Verify status again: `sudo systemctl status containerd`~~
 
-###### kube-controller-manager
+##### AWS Cloud Controller Manager (CCM)
 
-1. Execute: `sudo vim /etc/kubernetes/manifests/kube-controller-manager.yaml`
-2. Add the following lines `- --cloud-provider=aws` and `- --cluster-name=mycluster` to the section: `spec.containers.command:`
-
-(picX)
-
-###### AWS Cloud Controller Manager (CCM)
-
-When deploying AWS Cloud Controller Manager (CCM) as a DaemonSet in the cluster, it will be responsible for creating Load Balancers, managing nodes, etc. The aws-cloud-controller-manager Pod is the one that uses the credentials of the instance's IAM Role and manages everything.
+When deploying AWS Cloud Controller Manager (CCM) as a DaemonSet in the cluster, it will be responsible for creating Load Balancers, managing nodes, etc. The aws-cloud-controller-manager Pod is the one that uses the credentials of the instance's IAM Role and manages everything. After initializing kubeadm:
 
 
-2. Install (CNI) network plugin (Flannel). Without CNI the Pods of CoreDNS and other components can't initiate: `kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml`
+2. Install (CNI) network plugin (Flannel). Without CNI the Pods of CoreDNS and other components can't initiate: ` yes kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml`
 3. Install Helm: `sudo snap install helm --classic`
-4. Allow inbound rule from address `172.31.21.249` on port `6443` to allow the installation from Helm 
 5. Install AWS CCM:
 
 ```
+yes
 helm repo add aws-cloud-controller-manager https://kubernetes.github.io/cloud-provider-aws
 helm repo update
 helm install aws-ccm aws-cloud-controller-manager/aws-cloud-controller-manager
 ```
 
-~~1. Initiate your cluster with kubeadm: `kubeadm init --pod-network-cidr=10.244.0.0/16`~~
+###### kube-controller-manager
+
+1. Execute: `sudo vim /etc/kubernetes/manifests/kube-controller-manager.yaml`
+2. Add the following lines `- --cloud-provider=external` and `- --cluster-name=mycluster` to the section: `spec.containers.command:`
 
 1. Verify that the aws-cloud-controller-manager Pod is running on kube-system: `kubectl get pods -n kube-system`
 2. You should get back something like `aws-cloud-controller-manager-xxxxx`. Check its logs: `kubectl logs -n kube-system aws-cloud-controller-manager-xxxxx`.
-3. Verify whether the Pod is hung for other motive: `kubectl describe pod -n kube-system aws-cloud-controller-manager-xxxxx`
-4. Execute: `kubectl get pods -n kube-system`.
+
+(picX-kubectl-logs)
+
+4. Verify whether the Pod is hung for other motive: `kubectl describe pod -n kube-system aws-cloud-controller-manager-xxxxx`
+5. Execute: `kubectl get pods -n kube-system`.
 
 If you get back one Pod categorized as `CrashLoopBackOff` it means that the container is being recursively initialized due to an internal error. This error usually is that the AWS CCM can't access to the AWS API (lacks of IAM Role). For a single-node cluster (control plane + worker on the same instance), Flannel must be allowed (and any essential DaemonSets) to run on the same node. Remove the taint: `kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-` With this, Flannel will programm on the control-plane node and will create `/run/flannel/subnet.env` for the network to work (`kubernetes.io/cluster/<CLUSTER_NAME>=owned`).
 
@@ -305,17 +311,21 @@ With this, Flannel will bring up the network in the master node (because it is a
 Usually with default settings Kubernetes node is not able to get information from the AWS Instance Metadata Service (IMDS) when doing curl. Without that access to the metadata, the AWS Cloud Controller Manager cannot automatically discover the Region/Zone/AZ.
 Go to AWS -> EC2 Instances -> Select instance -> Actions -> Modify instance metadata options (Make sure IMDS is enabled).
 
-(picX)
+(picX-metadata-options)
 
 
-Wait a few minutes and run: `curl http://169.254.169.254/latest/meta-data/placement/availability-zone` it must return your Region AZ. Open the daemonset `kubectl edit ds aws-cloud-controller-manager -n kube-system` and in `args:` section paste: `- --controllers=*,-route`. With the route controller disabled, K8s will not attempt to configure routes in the VPC.
+Wait a few minutes and run: `curl http://169.254.169.254/latest/meta-data/placement/availability-zone` it must return your Region AZ.
+
+Open the daemonset `kubectl edit ds aws-cloud-controller-manager -n kube-system` and in `spec.template.spec.containers.args:` add: `- --controllers=*,-route`. With the route controller disabled, K8s will not attempt to configure routes in the VPC.
 
 Before moving to the next section:
 1. Make sure the node and those subnets are in the same region.
 2. Check the routing table of each subnet (must have internet gateway).
-3. Add as inbound rule subnet IPs into the K8s server. For that:
+3. Add as inbound rule subnet IPs into the K8s server. For that: AWS -> EC2 (your instance) -> Copy VPC-ID -> VPC Dashboard -> Paste your VPC-ID and select it -> In resource map you will see the three subnets
 
-   a. AWS -> EC2 -> Load Balancers -> Select LB -> In Description/Attributes you will see `subnets` -> Search that subnet-ID in (VPC -> Subnets) -> Copy the CIDR block (That is the subnet IP). Add as port <LB_NODEPORT>.
+(picX-VPC-ID)
+
+Select one subnet and copy the IPv4 CIDR block (That is the subnet IP). Add as port (<LB_NODEPORT>) `31123` which is defined by `nodePort: 31123` in `Service.yml`). Do the same for each subnet.
 
 ###### IAM Role and SGs
 
@@ -353,71 +363,58 @@ This way, when K8s (`kube-controller-manager`) makes calls to the AWS API to cre
 
 After setting the Security Groups table at the beginning, for AWS to be able to assign an instance ID to the LB a patch in `spec.providerID` 
 route from the node is required. Run:
-```
-kubectl patch node <NODE_NAME> \
-  -p '{"spec":{"providerID":"aws:///<AZ_REGION>/<INSTANCE_ID>"}}'
-```
-This way K8s will know which EC2 instance corresponds to the node and will register to it the LB. Execute: `kubectl describe node <NODE_NAME> | grep ProviderID`. A return as follows is expected: `ProviderID:  aws:///<AZ_REGION>/<INSTANCE_ID>`.
 
-Access the LB -> Target instances -> Add target instance (K8s server).
+```
+INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+```
+Return the variables manually with echo and introduce them in the following command (calling the variables won't work):
+```
+kubectl patch node $NODE_NAME \
+  -p '{"spec":{"providerID":"aws:///$AZ/$INSTANCE_ID"}}'
+```
+This way K8s will know which EC2 instance corresponds to the node and will register to it the LB. Execute: `kubectl describe node $NODE_NAME | grep ProviderID`. A return as follows is expected: `ProviderID:  aws:///<AZ_REGION>/<INSTANCE_ID>`.
+
+Access to the file: `sudo vim /var/lib/kubelet/kubeadm-flags.env` and substitute the current line for:
+```
+KUBELET_KUBEADM_ARGS="--container-runtime-endpoint=unix:///var/run/containerd/containerd.sock --pod-infra-container-image=registry.k8s.io/pause:3.9 --cloud-provider=external"
+```
+Restart kubelet:
+```
+sudo systemctl daemon-reexec
+sudo systemctl restart kubelet
+```
+**K8s server configuration finished.**
 
 To deploy the complete service run:
 ```
 kubectl apply -f Deployment.yml
 kubectl apply -f Service.yml
 ```
-First command creates the Deployment (Pods), second command creates the Service (AWS-CCM will create the ELB automatically)
+First command creates the Deployment (Pods) with the Tetris game, second command creates the Service (AWS-CCM will create the ELB automatically)
 
-###### Service.yml
-
-The easiest way to create an ELB manually is to define a `Service.yaml` with `type: LoadBalancer`. When executing `kubectl apply -f Service.yml` K8s will create in AWS the LB, a target group, listener, security rules, etc. After that, verify that the LoadBalancer is created: `kubectl get svc`.
-
-After 2 minutes execute: `kubectl get svc tetris-service`
-
-###### Deployment.yml
-
-Deployment is in charge of running the container in the cluster. Execute: `kubectl apply -f Deployment.yml`.
-
-After setting the Service and Deployment, targets must be registered. If the LB Target Group is still in the “unhealthy” state and “Registered targets (0)” or “unhealthy” when inspecting, it means that the Load Balancer is not able to successfully connect to the node on the corresponding health check port or NodePort. Define como “health check port” los puertos `80` o `<LB_NODEPORT>`.
-
-Once the Service has launched the ELB and the application is running in the Pods get the ELB DNS with `kubectl get svc tetris-service`.
-
-### Minikube (Install both in Ansible and Kubernetes server)
-
-Minikube is a lightweight Kubernetes tool that runs a single-node Kubernetes cluster locally on your machine. It is mainly used for development, testing, and learning Kubernetes without needing a full multi-node setup. For Minikube installation I used the following [tutorial post](https://www.digitalocean.com/community/tutorials/how-to-use-minikube-for-local-kubernetes-development-and-testing)
-
-1. Activate root user: `sudo su`
-2. Download and install Minikube binary for Ubuntu: `curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64`
-3. Move the Minikube binary to `/usr/local/bin/` and make it executable: `install minikube-linux-amd64 /usr/local/bin/minikube`
-4. Start Minikube with a compatible driver (using Docker): `minikube start --driver=docker`
-5. Check all running pods in all namespaces: `kubectl get pods -A`
-
-If kubectl is not recognised:
-
-#### kubectl
-
-kubectl is the command-line tool for interacting with Kubernetes clusters. It allows you to deploy applications, inspect resources, manage cluster components, and troubleshoot issues.
-
-1. Update package lists and install transport support for HTTPS repositories: `apt-get update && apt-get install -y apt-transport-https`
-3. Add Kubernetes GPG Key:
+If you run:
 ```
-mkdir -p /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | tee /etc/apt/keyrings/kubernetes-apt-keyring.asc > /dev/null
+kubectl get events
+kubectl describe svc tetris-service
 ```
-4. Add Kubernetes Repository: `echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list`
-5. Update and Install kubectl:
-```
-sudo apt update
-sudo apt install -y kubectl
-```
-6. Exit root mode: `exit`
-7. Verify kubectl Installation: `kubectl version --client`
-8. Add your user to the Docker group: `sudo usermod -aG docker $USER`
-9. Apply the new group permissions: newgrp docker
-10. Start Minikube: `minikube start --driver=docker`
-11. Check if Kubernetes is working: `kubectl get pods -A`
+An event outcome will be similar to: `UnAvailableLoadBalancer: There are no available nodes for LoadBalancer`. This means that even though the ELB is created, no instances are registered as targets if the node (ip-XXXXX) has the role of control-plane, and by default, Kubernetes doesn't register control-plane nodes as LoadBalancer targets. Hence, not routing traffic properly, and AWS CCM not being able to assign the instance to the CLB. It must be done manually (an alternative is using Terraform which will be used in another future project).
 
-![alt text](pics/pic11.png)
+To see the external IP run: `kubectl get svc tetris-service`
+
+Access the CLB -> Health Check Configuration -> Protocol: `TCP`, Port: `31123` <NODEPORT_LB>.
+Access the CLB -> Target instances -> Add target instance (K8s server).
+
+Wait one minute to see the `Health-status` in LB Target. You will see `in-service`. That means it is ready and passed the Health-check.
+
+(picX-health-check)
+
+Grab the public IP address from the command: `kubectl describe svc tetris-service`. Paste it into your browser and you will obtain the following outcome:
+
+(pic-final.png)
+
+Congratulations! You settled your first Game pipeline on AWS! 🥳
 
 # CI/CD
 
@@ -630,49 +627,7 @@ Add the following snippet to the jenkins-pipeline:
 1. `ansible -m ping node`: Is used to test SSH connectivity between the Ansible control server and the hosts defined under the group node (Kubernetes).
 2. `ansible-playbook ansible.yml`: Runs the ansible.yml playbook that contains tasks to deploy and configure resources on the Kubernetes server.
 
-### SSH connection Ansible <-> Kubernetes server
 
-###### Access the Kubernetes Server
-
-1. Activate root user: `sudo su`
-2. Set new password for sudo user: `passwd root`
-3. Go to: `vim /etc/ssh/sshd_config`. Find and set `PermitRootLogin prohibit-password`, `PasswordAuthentication no` and `PubkeyAuthentication yes`.
-4. Restart the ssh2 service: `systemctl restart ssh`
-5. Check your communication Kubernetes -> Ansible: `ping <PRIVATE_IP_ANSIBLE>`
-
-###### Access the Ansible Server
-
-1. Activate root user: `sudo su`
-2. Generate a key: `ssh-keygen -t rsa -b 4096 -C "ansible-to-k8s"`. Your public key will be located at: `/root/.ssh/id_rsa.pub`
-3. Check your communication Ansible -> Kubernetes: `ping <PRIVATE_IP_KUBERNETES>`
-4. Copy your public rsa key: `cat /root/.ssh/id_rsa.pub`
-
-###### Access the Kubernetes Server
-
-1. Create folder: `sudo mkdir -p /root/.ssh`
-2. Open file: `sudo vim /root/.ssh/authorized_keys` and paste there the content of the Ansible server `id_rsa.pub` public key.
-3. Restart ssh: `systemctl restart ssh`
-
-###### Access the Ansible Server
-
-1. Execute: `ssh root@<PRIVATE_IP_KUBERNETES>`
-
-![alt text](pics/pic24.png)
-
-Bingo! You are in kubernetes server from ansible server as root.
-
-Now, exit your connection and from the default user in your Ansible terminal run:
-
-1. Access the file: vim /etc/ansible/hosts
-2. Write at the bottom:
-```
-[node]
-<KUBERNETES_PRIVATE_IP>
-```
-3. Test the connection to the `node` group: `ansible -m ping node`
-You will get the following outcome:
-
-![alt text](pics/pic25.png)
 
 ###### Access the Jenkins Server
 
@@ -704,3 +659,8 @@ Before running any command, access AWS, set inbound rules in both Jenkins and Ku
 Bingo! You are connected from Jenkins to Kubernetes server.
 
 Now enter the Jenkins browser and run the pipeline. You must get the following outcome:
+
+
+
+
+

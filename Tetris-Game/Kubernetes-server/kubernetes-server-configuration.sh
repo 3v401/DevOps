@@ -31,7 +31,7 @@ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 sudo snap install yq
-sudo yq -i '.spec.containers[0].command += ["--cloud-provider=aws", "--cluster-name=mycluster"]' /etc/kubernetes/manifests/kube-controller-manager.yaml
+sudo yq -i '.spec.containers[0].command += ["--cloud-provider=external", "--cluster-name=mycluster"]' /etc/kubernetes/manifests/kube-controller-manager.yaml
 
 
 kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
@@ -39,3 +39,11 @@ kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Doc
 helm repo add aws-cloud-controller-manager https://kubernetes.github.io/cloud-provider-aws
 helm repo update
 helm install aws-ccm aws-cloud-controller-manager/aws-cloud-controller-manager
+
+kubectl get pods -n kube-system
+
+kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-
+
+kubectl -n kube-system patch ds aws-cloud-controller-manager \
+  --type=json \
+  -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--controllers=*,-route"}]'

@@ -11,4 +11,6 @@ spec:
     - protocol: TCP                   # Define TCP as the transport protocol
       port: 80                        # Port the Service will expose inside the cluster
       targetPort: 3000                # Port on the container to which traffic will be directed
+      nodePort: 31123
   type: LoadBalancer                      # To expose the service externally without using an Ingress or LoadBalancer
+  externalTrafficPolicy: Local
