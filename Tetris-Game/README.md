@@ -1,5 +1,5 @@
 # Secure CI/CD pipeline for containerized Tetris Delivery on AWS
-#### (Post under development)
+
 ##### Project result:
 
 <p align="center">
@@ -8,14 +8,39 @@
   <img src="pics/pic31-end.png" alt="pic31" width="315"/>
 </p>
 
+## 📚 Index:
 
-# Index:
+- [Setting up servers](#setting-up-servers)
+  - [SG & IAM Roles](#sg--iam-roles)
+  - [Jenkins server](#jenkins-server)
+    - [Jenkins installation and configuration](#jenkins-installation-and-configuration)
+    - [Setting persistence on Jenkins](#setting-persistence-on-jenkins)
+    - [SSH Communication Jenkins - Ansible server](#ssh-communication-jenkins---ansible-server)
+    - [SSH Communication Jenkins - K8s server](#ssh-communication-jenkins---k8s-server)
+  - [Ansible server](#ansible-server)
+    - [Ansible installation and configuration](#ansible-installation-and-configuration)
+    - [Docker installation](#docker-installation)
+    - [SSH Communication Ansible - K8s server](#ssh-communication-ansible---k8s-server)
+  - [K8s server](#k8s-server)
+    - [Kubeadm installation and configuration](#kubeadm-installation-and-configuration)
+    - [Enable Load Balancer](#enable-load-balancer)
+    - [AWS Cloud Controller Manager (CCM)](#aws-cloud-controller-manager-ccm)
+      - [Kube-controller-manager](#kube-controller-manager)
+    - [IAM Roles and SGs](#iam-roles-and-sgs)
+- [CI/CD](#cicd)
+  - [GitHub Webhooks](#github-webhooks)
+  - [Jenkins-pipeline](#jenkins-pipeline)
+    - [Sending content from Jenkins to Ansible](#sending-content-from-jenkins-to-ansible)
+    - [Communication Ansible - DockerHub](#communication-ansible---dockerhub)
+      - [Building](#building)
+      - [Tagging](#tagging)
+      - [Pushing to DockerHub](#pushing-to-dockerhub)
+    - [Communication Jenkins - Ansible - K8s](#communication-jenkins---ansible---k8s)
+  - [Trigger pipeline (CI/CD)](#trigger-pipeline-cicd)
 
-1. Setting up servers
-2. CI/CD
-3. Playing Tetris
+# Setting up servers
 
-# Setting up
+## SG & IAM Roles
 
 | Requirements         | Inbound Rules                                        | Description                         | Outbound Rules      | IAM Roles           |
 |--------------------|--------------------------------------------------------| ------------------------|---------------------|----------------------|
@@ -36,9 +61,11 @@
 |                    | Custom TCP 31123 + subnet IPs                          |   TCP connection 3 subnets to K8s-server      |                     |                      |
 |                    | Custom TCP 31123 + LB_SG                     |   TCP connection LB Security Group to K8s-server       |                     |                      |
 | **Load Balancer**  | Custom TCP 80 + my IP                                    |    HTTP connection from my IP to CLB (Access site)                     | All traffic 0.0.0.0/0 | K8s-EC2-ELB-Role    |
-|                    | Custom TCP <LB_NODEPORT> + my IP                 |      TCP connection from my IP to CLB                  |                     |                      |
+|                    | Custom TCP 31123 + my IP                 |      TCP connection from my IP to CLB                  |                     |                      |
 
 ## Jenkins server
+
+### Jenkins installation and configuration
 
 Activate the `jenkins-server` EC2 instance.
 Locate your `.pem` file and enable permissions: `chmod 400 <KEYPAIR_FILENAME>`
@@ -81,25 +108,33 @@ When previous command is run, the `ufw enable` command activated the firewall, m
 
 Once you get the password, access the browser, type `<PUBLIC_IP_JENKINS>:<PORT>` and introduce it.
 
-![alt text](pics/pic6.png)
+<p>
+  <img src="pics/pic6.png" alt="pic6" width="700"/>
+</p>
 
 1. Select `Install suggested plugins`.
 2. Create first admin user.
 3. Save your Jenkins instance configuration: `http://<PUBLIC_IP_JENKINS>:<PORT>/`
 
-![alt text](pics/pic7.png)
+<p>
+  <img src="pics/pic7.png" alt="pic7" width="600"/>
+</p>
 
 Search and install: Dashboard -> Manage Jenkins -> Plugins -> ssh agent
 
-![alt text](pics/pic8.png)
+<p>
+  <img src="pics/pic8.png" alt="pic8" width="600"/>
+</p>
 
 Restart Jenkins after installation is fulfilled.
 
-![alt text](pics/pic9.png)
+<p>
+  <img src="pics/pic9.png" alt="pic9" width="600"/>
+</p>
 
 Jenkins ready!
 
-### Setting persistance on Jenkins
+### Setting persistence on Jenkins
 
 When you turn off your EC2 instance, you will loose access to your Jenkins pipeline, being too slow to be used. It will seem like there are some issues to troubleshoot with Network ACLs, Security groups, Firewalls... Nonetheless, if you followed the exact same process from this post, you have to enable a recurrent update of your last update. For that:
 
@@ -133,13 +168,39 @@ WantedBy=multi-user.target
 ```
 5. Activate the service again: `sudo systemctl daemon-reload && sudo systemctl enable startup-tasks.service`
 
+### SSH communication Jenkins - Ansible server
+
+###### Access the Jenkins Server
+
+1. Run: `ssh-keygen -t rsa -b 4096 -C "jenkins-to-ansible"` and move your files to: `~/.ssh/`.
+2. Activate permissions: `chmod 600 ~/.ssh/jenkins-to-ansible && chmod 644 ~/.ssh/jenkins-to-ansible.pub`
+3. Show the content of the public key from Jenkins: `cat ~/.ssh/jenkins-to-ansible.pub`
+4. Copy and paste it in the Ansible-server. Open the file: `vim ~/.ssh/authorized_keys` and paste the content of `jenkins-to-ansible.pub` there.
+5. Restart the ssh2 service in the Ansible: `sudo systemctl restart ssh`
+6. Go to Jenkins-server. Test the ping connection (the Inbound Rule must have been enabled before, ICMP IPv4 Jenkins <-> Ansible)
+7. Access the Ansible-server executing from Jenkins-server: `ssh -i ~/.ssh/jenkins-to-ansible ubuntu@<ANSIBLE_internal_IP>`
+8. Bingo. You must have entered the Ansible-server from Jenkins!
+
+### SSH communication Jenkins - K8s server
+
+###### Access the Jenkins Server
+
+1. Run: `ssh-keygen -t rsa -b 4096 -C "jenkins-to-K8s"` and move your files to: `~/.ssh/`.
+2. Activate permissions: `chmod 600 ~/.ssh/jenkins-to-K8s && chmod 644 ~/.ssh/jenkins-to-K8s.pub`
+3. Show the content of the public key from Jenkins: `cat ~/.ssh/jenkins-to-K8s.pub`
+4. Copy and paste it in the K8s-server. Open the file: `vim ~/.ssh/authorized_keys` and paste the content of `jenkins-to-K8s.pub` there.
+5. Restart the ssh2 service in the K8s: `sudo systemctl restart ssh`
+6. Go to Jenkins-server. Test the ping connection (the Inbound Rule must have been enabled before, ICMP IPv4 Jenkins <-> K8s)
+7. Access the K8s-server executing from Jenkins-server: `ssh -i ~/.ssh/jenkins-to-K8s ubuntu@<K8s_internal_IP>`
+8. Bingo. You must have entered the K8s-server from Jenkins!
+
 **Jenkins-server configuration finished.**
 
 ## Ansible server
 
 Ansible is an open-source automation tool used for configuration management, application deployment, and infrastructure orchestration. It allows managing servers and deployments using YAML-based playbooks. In this example, it will execute tasks on a remote server (the Kubernetes node). Instead of manually logging into the Kubernetes server and running kubectl apply or configurations, Ansible automates this process from a central control node (the "Ansible server"). This is typical in environments where infrastructure as code (IaC) and centralized management are required.
 
-### Ansible installation
+### Ansible installation and configuration
 
 For Ansible installation I used the following [tutorial post](https://www.digitalocean.com/community/tutorials/how-to-install-and-configure-ansible-on-ubuntu-20-04).
 1. Activate root user: `sudo su`
@@ -166,9 +227,9 @@ Docker is an open-source containerization platform that allows developers to pac
 
 ![alt text](pics/pic10.png)
 
-### SSH communication Ansible <-> Kubernetes server
+### SSH communication Ansible - K8s server
 
-###### Access the Ansible Server
+#### Access the Ansible Server
 
 1. Run: `ssh-keygen -t rsa -b 4096 -C "ansible-to-k8s"` and move your files to: `~/.ssh/`.
 2. Activate permissions: `chmod 600 ~/.ssh/ansible-to-k8s && chmod 644 ~/.ssh/ansible-to-k8s.pub`
@@ -179,7 +240,9 @@ Docker is an open-source containerization platform that allows developers to pac
 7. Access the K8s-server executing from Ansible-server: `ssh -i ~/.ssh/ansible-to-k8s ubuntu@<K8s_internal_IP>`
 8. Bingo. You must have entered the K8s server from Ansible!
 
-![alt text](pics/pic24.png)
+<p>
+  <img src="pics/pic24.png" alt="pic24" width="700"/>
+</p>
 
 Now, exit your connection from K8s-server and from Ansible-server at `~` ($HOME) create the following file: `vim inventory`. Paste the following content:
 ```
@@ -189,11 +252,11 @@ Now, exit your connection from K8s-server and from Ansible-server at `~` ($HOME)
 
 **Ansible-server configuration finished.**
 
-## Kubernetes server
+## K8s server
 
 Kubernetes (K8s) is an open-source container orchestration platform used for automating deployment, scaling, and management of containerized applications across multiple nodes. For this section we will install Docker and Kubectl.
 
-### Kubeadm
+### Kubeadm installation and configuration
 
 1. Disable swap:
 ```
@@ -227,10 +290,9 @@ sudo apt-get update
 sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 ```
-7. Initialize Kubernetes cluster: ` yes if error: sudo kubeadm init --pod-network-cidr=10.244.0.0/16`. `10.244.0.0/16` is the default pod network range required by Flannel.
+7. Initialize Kubernetes cluster: `sudo kubeadm init --pod-network-cidr=10.244.0.0/16`. `10.244.0.0/16` is the default pod network range required by Flannel.
 8. If an error is prompted related to missing kernel settings for kubernetes networking (`/proc/sys/net/bridge/bridge-nf-call-iptables` does not exist and `/proc/sys/net/ipv4/ip_forward` is not set to 1) run:
 ```
-yes
 sudo modprobe br_netfilter
 echo 'br_netfilter' | sudo tee /etc/modules-load.d/k8s.conf
 
@@ -238,7 +300,7 @@ echo 'net.bridge.bridge-nf-call-iptables=1' | sudo tee /etc/sysctl.d/k8s.conf
 echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.d/k8s.conf
 sudo sysctl --system
 ```
-This commands load the br_netfilter module and ensures it's loaded on boot, then sets required kernel params for Kubernetes networking. Rerun ` yes sudo kubeadm init --pod-network-cidr=10.244.0.0/16`.
+This commands load the br_netfilter module and ensures it's loaded on boot, then sets required kernel params for Kubernetes networking. Rerun `sudo kubeadm init --pod-network-cidr=10.244.0.0/16`.
 9. Set up kubectl access for your user:
 ```
 mkdir -p $HOME/.kube
@@ -248,7 +310,7 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 ### Enable Load Balancer
 
-To expose the Tetris app (contained in a K8s Pod) through AWS, usually the easiest path is to set the Service with a LoadBalancer. This way K8s will create an ELB (Classic, NLB or ALB) and it will associate it to the nodes that run the service. An Elastic LOad Balancer (ELB) is an AWS service that acts as public door entrance to your applications. It:
+To expose the Tetris app (contained in a K8s Pod) through AWS, usually the easiest path is to set the Service with a LoadBalancer. This way K8s will create an ELB (Classic, NLB or ALB) and it will associate it to the nodes that run the service. An Elastic Load Balancer (ELB) is an AWS service that acts as public door entrance to your applications. It:
 
 1. Receives internet traffic to the servers
 2. Redirect traffic to the servers
@@ -264,28 +326,24 @@ For an self-organized K8s EC2 instance being able to create and administrate AWS
 
 This way, when K8s (`kube-controller-manager`) calls the AWS API (to create the LB), it will use the IAM role assigned.
 
-
-###### containerd
-
 2. Verify status: `sudo systemctl status containerd`
 
-##### AWS Cloud Controller Manager (CCM)
+### AWS Cloud Controller Manager (CCM)
 
 When deploying AWS Cloud Controller Manager (CCM) as a DaemonSet in the cluster, it will be responsible for creating Load Balancers, managing nodes, etc. The aws-cloud-controller-manager Pod is the one that uses the credentials of the instance's IAM Role and manages everything. After initializing kubeadm:
 
 
-2. Install (CNI) network plugin (Flannel). Without CNI the Pods of CoreDNS and other components can't initiate: ` yes kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml`
+2. Install (CNI) network plugin (Flannel). Without CNI the Pods of CoreDNS and other components can't initiate: `kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml`
 3. Install Helm: `sudo snap install helm --classic`
 5. Install AWS CCM:
 
 ```
-yes
 helm repo add aws-cloud-controller-manager https://kubernetes.github.io/cloud-provider-aws
 helm repo update
 helm install aws-ccm aws-cloud-controller-manager/aws-cloud-controller-manager
 ```
 
-###### kube-controller-manager
+#### kube-controller-manager
 
 1. Execute: `sudo vim /etc/kubernetes/manifests/kube-controller-manager.yaml`
 2. Add the following lines `- --cloud-provider=external` and `- --cluster-name=mycluster` to the section: `spec.containers.command:`
@@ -293,7 +351,7 @@ helm install aws-ccm aws-cloud-controller-manager/aws-cloud-controller-manager
 1. Verify that the aws-cloud-controller-manager Pod is running on kube-system: `kubectl get pods -n kube-system`
 2. You should get back something like `aws-cloud-controller-manager-xxxxx`. Check its logs: `kubectl logs -n kube-system aws-cloud-controller-manager-xxxxx`.
 
-(picX-kubectl-logs)
+![alt text](pics/picX-kubectl-logs.png)
 
 4. Verify whether the Pod is hung for other motive: `kubectl describe pod -n kube-system aws-cloud-controller-manager-xxxxx`
 5. Execute: `kubectl get pods -n kube-system`.
@@ -311,8 +369,9 @@ With this, Flannel will bring up the network in the master node (because it is a
 Usually with default settings Kubernetes node is not able to get information from the AWS Instance Metadata Service (IMDS) when doing curl. Without that access to the metadata, the AWS Cloud Controller Manager cannot automatically discover the Region/Zone/AZ.
 Go to AWS -> EC2 Instances -> Select instance -> Actions -> Modify instance metadata options (Make sure IMDS is enabled).
 
-(picX-metadata-options)
-
+<p>
+  <img src="pics/picX-metadata-options.png" alt="picX-metadata-options" width="500"/>
+</p>
 
 Wait a few minutes and run: `curl http://169.254.169.254/latest/meta-data/placement/availability-zone` it must return your Region AZ.
 
@@ -323,13 +382,13 @@ Before moving to the next section:
 2. Check the routing table of each subnet (must have internet gateway).
 3. Add as inbound rule subnet IPs into the K8s server. For that: AWS -> EC2 (your instance) -> Copy VPC-ID -> VPC Dashboard -> Paste your VPC-ID and select it -> In resource map you will see the three subnets
 
-(picX-VPC-ID)
+![alt text](pics/picX-VPC-ID.png)
 
 Select one subnet and copy the IPv4 CIDR block (That is the subnet IP). Add as port (<LB_NODEPORT>) `31123` which is defined by `nodePort: 31123` in `Service.yml`). Do the same for each subnet.
 
-###### IAM Role and SGs
+### IAM Roles and SGs
 
-###### IAM Role
+#### IAM Role
 
 Now, go through your AWS website. Access:
 
@@ -349,17 +408,7 @@ Go to EC2 instances -> Select kubernetes-server -> Actions -> Security -> Modify
 
 This way, when K8s (`kube-controller-manager`) makes calls to the AWS API to create the ELB, it will automatically use the credentials of that IAM Role attached to the instance.
 
-###### Explanation why the following Allow Actions:
-
-1. `"ec2:Describe*"`: Kubernetes needs to discover resources like subnets, VPCs, and security groups to attach the ELB correctly.
-2. `"ec2:CreateTags"`: Kubernetes tags resources like ELBs, subnets, and security groups so it can later identify and manage them.
-3. `"ec2:AuthorizeSecurityGroupIngress"`: When the ELB is created, Kubernetes needs to allow traffic into the pods by modifying the security group.
-4. `"elasticloadbalancing:*"`: This is the core of what allows Kubernetes to create and manage the ELB.
-5. `"iam:ListServerCertificates"`: When service uses HTTPS, Kubernetes needs to retrieve certificates to assign them to the load balancer.
-6. `"iam:GetServerCertificate"`: To inspect a specific certificate when setting up HTTPS listeners.
-7. `"iam:ListRolePolicies"` and `"iam:GetRolePolicy"`: Required by Kubernetes controllers to check IAM role capabilities
-
-###### SGs
+#### SGs
 
 After setting the Security Groups table at the beginning, for AWS to be able to assign an instance ID to the LB a patch in `spec.providerID` 
 route from the node is required. Run:
@@ -387,41 +436,14 @@ sudo systemctl restart kubelet
 ```
 **K8s server configuration finished.**
 
-To deploy the complete service run:
-```
-kubectl apply -f Deployment.yml
-kubectl apply -f Service.yml
-```
-First command creates the Deployment (Pods) with the Tetris game, second command creates the Service (AWS-CCM will create the ELB automatically)
-
-If you run:
-```
-kubectl get events
-kubectl describe svc tetris-service
-```
-An event outcome will be similar to: `UnAvailableLoadBalancer: There are no available nodes for LoadBalancer`. This means that even though the ELB is created, no instances are registered as targets if the node (ip-XXXXX) has the role of control-plane, and by default, Kubernetes doesn't register control-plane nodes as LoadBalancer targets. Hence, not routing traffic properly, and AWS CCM not being able to assign the instance to the CLB. It must be done manually (an alternative is using Terraform which will be used in another future project).
-
-To see the external IP run: `kubectl get svc tetris-service`
-
-Access the CLB -> Health Check Configuration -> Protocol: `TCP`, Port: `31123` <NODEPORT_LB>.
-Access the CLB -> Target instances -> Add target instance (K8s server).
-
-Wait one minute to see the `Health-status` in LB Target. You will see `in-service`. That means it is ready and passed the Health-check.
-
-(picX-health-check)
-
-Grab the public IP address from the command: `kubectl describe svc tetris-service`. Paste it into your browser and you will obtain the following outcome:
-
-(pic-final.png)
-
-Congratulations! You settled your first Game pipeline on AWS! 🥳
-
 # CI/CD
 
-## Github webhooks
+## Github Webhooks
 
 GitHub Webhooks are automated HTTP callbacks that notify an external service (e.g. Jenkins, Slack, or a custom API) whenever specific events happen in a GitHub repository. It can be used to trigger CI/CD pipelines (our situation), send notifications or automate workflows.
 To set it up, go to Jenkins Dashboard -> New Item (Name: jenkins-pipeline) -> For script introduce:
+
+## Jenkins pipeline
 
 ```
 node {
@@ -435,7 +457,7 @@ Save.
 
 Now access to Github repository (DevOps) -> Settings -> Webhooks -> Add new Webhook:
 
-1. Payload URL: http://<JENKINS_IP>:<PORT>/github-webhook/
+1. Payload URL: http://<JENKINS_PUBLIC_IP>:PORT/github-webhook/
 2. Content type: application/json
 3. Secret: To introduce the secret go to the jenkins-server and Dashboard -> Your user -> Security -> Add new token. Save the token and paste it into the Secret section.
 
@@ -455,39 +477,11 @@ This way you will get the list of IP addresses from GitHub to allow inbound rule
 
 ![alt text](pics/pic15.png)
 
-Go to Webhooks (the one with error) -> Edit -> Recent Deliveries -> Redelivery. You will get the ping correctly.
-Open the Dockerfile in our project and add a new port (e.g., 22). Save, commit and push. You will observe in the Jenkins Dashboard the following:
-
-![alt text](pics/pic16.png)
-
-(picx) show Jenkins dashboard of the updated version with the webhook
-
-## Jenkins connection to Ansible
-
-Set Global (unrestricted) credentials:
+Go to Webhooks (the one with error) -> Edit -> Recent Deliveries -> Redelivery. You will get the ping correctly. Now set Global (unrestricted) credentials:
 
 Access to: Dashboard -> Manage Jenkins -> Credentials -> System -> Global credentials (unrestricted) -> Add credentials
 
-Kind: SSH Username with private key, Scope: Global, ID: ansible_demo, Description: ansible_demo, Username: <ANSIBLE_USERNAME>, Private Key: Enter directly (enter your private key from your pem file).
-
-Once finished, you will get the following credentials list:
-
-![alt text](pics/pic16.png)
-
-Now access to a created `jenkins-pipeline` via: Dashboard -> jenkins-pipeline -> Pipeline Syntax. Sample Step: sshagent: SSH Agent, select 'ubuntu (ansible_demo)', then select 'Generate Pipeline Script'. It will return:
-```
-sshagent(['ansible_demo']) {
-    // some block
-}
-```
-
-Save this snippet in a txt file.
-
-### Communication Jenkins <-> Ansible
-
-To allow communication to Ansible, access: Ansible EC2 -> Security Groups -> Edit Inbound rules:
-1.  All traffic, source "My IP", Description: My IP traffic
-2.  SSH, source "Jenkins IP", Description: SSH connection Jenkins - Ansible.
+Kind: SSH Username with private key, Scope: Global, ID: ansible-access, Description: ansible-access, Username: <ANSIBLE_USERNAME> (`ubuntu` in this tutorial), Private Key: Enter directly (enter your private key from your ansible-key.pem file, i.e., the one to log into ansible-server EC2 instance).
 
 ### Sending content from Jenkins to Ansible
 
@@ -499,9 +493,9 @@ node {
         git 'https://github.com/3v401/DevOps.git'
     }
     stage('Sending Jenkins content to Ansible server over ssh'){
-        sshagent(['ansible_demo']){
-            sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP>'
-            sh 'scp /var/lib/jenkins/workspace/jenkins-pipeline/Tetris-Game/* <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP>:/home/<ANSIBLE_USERNAME>'
+        sshagent(['ansible-access']){
+            sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_INTERNAL_IP> '
+            sh 'scp /var/lib/jenkins/workspace/jenkins-pipeline/Tetris-Game/Ansible-server/* <ANSIBLE_USERNAME>@<ANSIBLE_INTERNAL_IP>:/home/<ANSIBLE_USERNAME> '
         }
     }
 }
@@ -513,31 +507,33 @@ Click on apply, save and click on `build now`. Wait until you get feedback. You 
 
 Jenkins prompts that the content has been sent correctly from Jenkins to Ansible. To check everything is setup, let's access the ansible terminal and verify its content:
 
-![alt text](pics/pic18.png)
+<p>
+  <img src="pics/pic18.png" alt="pic18" width="500"/>
+</p>
 
 As expected, the content is also located in the Ansible server.
 
 
-### Communication Ansible <-> DockerHub
+### Communication Ansible - DockerHub
 
 #### Building
 
 In the Jenkins pipeline add the following snippet:
 
 ```
-stage('Docker build image'){
-    sshagent(['ansible_demo'])}
-        sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> cd /home/<ANSIBLE_USERNAME>/'
-        sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> docker imge build -t $JOB_NAME:v1.$BUILD_ID .'
+    stage('Docker build image'){
+        sshagent(['ansible-access']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> cd /home/ubuntu/'
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image build -t $JOB_NAME:v1.$BUILD_ID .'
+        }
     }
-}
 ```
 
-1. Connect to your Jenkins server, check the files: `ls -la /var/lib/jenkins/workspace/jenkins-pipeline`
-2. Connect to your Ansible server, check the files: `ls -la ~`
-3. In your Ansible server run: `sudo docker image ls`
+3. After running this Jenkins snippet pipeline, in your Ansible-server run: `sudo docker image ls`
 
-![alt text](pics/pic19.png)
+<p>
+  <img src="pics/pic19.png" alt="pic19" width="500"/>
+</p>
 
 Congratulations, your Docker image has been built!
 
@@ -546,13 +542,13 @@ Congratulations, your Docker image has been built!
 Now let's tag it for later pushing it to the DockerHub. Add the following snippet to the previous jenkins-pipeline:
 
 ```
-stage('Docker image tagging'){
-    sshagent(['ansible_demo']){
-        sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> cd /home/<USERNAME>/'
-        sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> docker image tag $JOB_NAME:v1.$BUILD_ID <DOCKER_USERNAME>/$JOB_NAME:v1.$BUILD_ID '
-        sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> docker image tag $JOB_NAME:v1.$BUILD_ID <DOCKER_USERNAME>/$JOB_NAME:latest '
+    stage('Docker image tagging'){
+        sshagent(['ansible-access']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> cd /home/ubuntu/'
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image tag $JOB_NAME:v1.$BUILD_ID dockerwhale123whaledocker/$JOB_NAME:v1.$BUILD_ID '
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image tag $JOB_NAME:v1.$BUILD_ID dockerwhale123whaledocker/$JOB_NAME:latest '
+        }
     }
-}
 ```
 
 Run the pipeline, you will get the following outcomes in the jenkins-pipeline and Ansible server:
@@ -567,19 +563,19 @@ Access: Dashboard -> Manage Jenkins -> Credentials -> System -> Global credentia
 
 New credentials. Kind (Secret text), Scope (Global), Secret (your DockerHub password), ID (`dockerhub_pass`), Description (`dockerhub_pass`), Create.
 
-Access: Dashboard -> jenkins-pipeline -> Pipeline Syntax
+Access: Dashboard -> Manage Jenkins -> Credentials -> System -> Global credentials (unrestricted).
 
-Sample Step (withCredentials: Bind credentials to variables), Variable (`dockerhub_pass`), Credentials (`dockerhub_pass`), Generate Pipeline Script.
+Sample Step (withCredentials: Bind credentials to variables), Variable (`dockerhub_pass`), Credentials (`dockerhub_pass`).
 
 Add the following snippet to the previous jenkins-pipeline:
 
 ```
     stage('Push Docker image to DockerHub'){
-        sshagent(['ansible_demo']){
+        sshagent(['ansible-access']){
             withCredentials([string(credentialsId: 'dockerhub_pass', variable: 'dockerhub_pass')]) {
-                    sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> docker login -u <DOCKERHUB_USERNAME> -p ${dockerhub_pass} '
-                    sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> docker image push <DOCKERHUB_USERNAME>/$JOB_NAME:v1.$BUILD_ID '
-                    sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> docker image push <DOCKERHUB_USERNAME>/$JOB_NAME:latest '
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker login -u <DOCKERHUB_USERNAME> -p ${dockerhub_pass} '
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image push <DOCKERHUB_USERNAME>/$JOB_NAME:v1.$BUILD_ID '
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> docker image push <DOCKERHUB_USERNAME>/$JOB_NAME:latest '
             }
         }
     }
@@ -587,80 +583,81 @@ Add the following snippet to the previous jenkins-pipeline:
 
 Apply and Save. Click 'Build Now'. You must get the following outcome into the jenkins-pipeline:
 
-Access: Dashboard -> Manage Jenkins -> Credentials -> System -> Global credentials (unrestricted)
 
 ![alt text](pics/pic22.png)
 
 and into your DockerHub account:
 
-![alt text](pics/pic23.png)
+<p>
+  <img src="pics/pic23.png" alt="pic23" width="500"/>
+</p>
 
 Congratulations! You uploaded your Docker image into DockerHub via Jenkins and Ansible!
 
-### Communication Jenkins <-> Ansible <-> Kubernetes
+### Communication Jenkins - Ansible - K8s
 
-Remember to allow inbound/outbound connections between Jenkins <-> Ansible <-> Kubernetes
-Generate a pass key as we did in Ansible but for Kubernetes.
+Remember to allow inbound/outbound connections between Jenkins <-> Ansible <-> Kubernetes. Generate a pass key as we did in Ansible but for Kubernetes (K8s-access).
 
-Acess: Dashboard -> Manage Jenkins -> Credentials -> SYstem -> Global credentials (unrestricted) -> Add Credentials
+Acess: Dashboard -> Manage Jenkins -> Credentials -> System -> Global credentials (unrestricted) -> Add Credentials
 
-Kind (SSH Username with private key), ID (kubernetes_server), Description (kubernetes_server), Username (<KUBERNETES_USERNAME>), Private Key (Enter directly Key, your pem private key).
+Kind (SSH Username with private key), ID (K8s-access), Description (K8s-access), Username (<KUBERNETES_USERNAME>), Private Key (Enter directly Key, your pem private key).
 
 Add the following snippet to the jenkins-pipeline:
 
 ```
-    stage('Copy files from Ansible to Kubernetes server'){
-        sshagent(['kubernetes_server']){
-            sh 'ssh -o StrictHostKeyChecking=no <KUBERNETES_USERNAME>@<KUBERNETES_PRIVATE_IP> '
-            sh 'scp /var/lib/jenkins/workspace/jenkins-pipeline/Tetris-Game/* <KUBERNETES_USERNAME>@<KUBERNETES_PRIVATE_IP>:/home/<KUBERNETES_USERNAME>/ '
+    stage('Copy files from Jenkins to Kubernetes server'){
+        sshagent(['K8s-access']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@<K8s_INTERNAL_IP> '
+            sh 'scp /var/lib/jenkins/workspace/jenkins-pipeline/Tetris-Game/Kubernetes-server/* ubuntu@<K8s_INTERNAL_IP>:/home/ubuntu/ '
         }
     }
-    stage('Kubernetes Deployment using Ansible'){
-        sshagent(['kubernetes_server']){
-            sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> cd /home/<ANSIBLE_USERNAME>/ '
-            sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> ansible -m ping node '
-            sh 'ssh -o StrictHostKeyChecking=no <ANSIBLE_USERNAME>@<ANSIBLE_PUBLIC_IP> ansible-playbook ansible.yml '
+    stage('Kubernetes Deployment using Ansible') {
+        sshagent(['ansible-access']) {
+            sh '''
+                ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> "
+                    cd /home/ubuntu && sudo ansible-playbook -i inventory k8s_deployment.yml
+                "
+            '''
         }
     }
 ```
 
-1. `ansible -m ping node`: Is used to test SSH connectivity between the Ansible control server and the hosts defined under the group node (Kubernetes).
-2. `ansible-playbook ansible.yml`: Runs the ansible.yml playbook that contains tasks to deploy and configure resources on the Kubernetes server.
+`ansible-playbook -i inventory k8s_deployment.yml`: Runs the k8s_deployment.yml playbook that contains tasks to deploy and configure resources on the Kubernetes server. The target is registered in the `inventory` folder.
 
+## Trigger pipeline (CI/CD)
 
+Now the complete pipeline for Jenkins is ready. To show the complete user-experience. Clone the whole github repository form this project. Access `Tetris-Game` folder. Create your own repository on GitHub and do:
+`git push origin master`
 
-###### Access the Jenkins Server
+Your CI/CD project would be triggered:
 
-Now an ssh key must be generated for Jenkins -> Kubernetes. Let's repeat the process.
+The successful Jenkins-pipeline should return as follows:
 
-1. Activate root user: `sudo su`
-2. Generate a key: `ssh-keygen -t rsa -b 4096 -C "jenkins-to-k8s"`. Your public key will be located at: `/root/.ssh/id_rsa.pub`
-3. To allow communication Jenkins <-> Kubernetes create an inbound rule in both servers setting an allow ICMP IPv4 in each server with their destination <KUBERNETES/JENKINS_PRIVATE_IP> respectivelly. ICMP is the type inbound rule for ping messages.
-4. Check your communication Jenkins -> Kubernetes: `ping <PRIVATE_IP_KUBERNETES>`
-5. Copy your public rsa key: `cat /root/.ssh/id_rsa.pub`
+![alt text](pics/picX-final-jenkins-pipeline.png)
 
-###### Access the Kubernetes Server
+Access to the K8s-server and run:
+```
+kubectl get events
+kubectl describe svc tetris-service
+```
+An event outcome will be similar to: `UnAvailableLoadBalancer: There are no available nodes for LoadBalancer`. This means that even though the ELB is created, no instances are registered as targets if the node (ip-XXXXX) has the role of control-plane, and by default, Kubernetes doesn't register control-plane nodes as LoadBalancer targets. Hence, not routing traffic properly, thus AWS CCM not being able to assign the instance to the CLB. It must be done manually (an alternative is using Terraform which will be used in a future project).
 
-1. Then as a sudo user, open file: `vim /root/.ssh/authorized_keys` and paste there the content of the Jenkins server `id_rsa.pub` public key.
-2. Restart ssh: `systemctl restart ssh`
-3. If you turned your instance off during this lab. Set up again minikube: `minikube start`
-4. You will get the following outcome in the Kubernetes terminal:
+To see the external IP run: `kubectl get svc tetris-service`
 
-![alt text](pics/pic26.png)
+Access the CLB -> Health Check Configuration -> Protocol: `TCP`, Port: `31123` <NODEPORT_LB>.
+Access the CLB -> Target instances -> Add target instance (K8s server).
 
-###### Access the Jenkins Server
+Wait one minute to see the `Health-status` in LB Target. You will see `in-service`. That means it is ready and passed the Health-check.
 
-Before running any command, access AWS, set inbound rules in both Jenkins and Kubernetes. Allow SSH connection from Kubernetes and Jenkins internal IPv4 addresses.
+![alt text](pics/picX-health-check.png)
 
-1. Run the following command from Jenkins terminal: `ssh root@<KUBERNETES_PRIVATE_IP>`
+Grab the public (CLB) IP address from the command: `kubectl describe svc tetris-service`. Paste it into your browser and you will obtain the following outcome:
 
-![alt text](pics/pic27.png)
+<p>
+  <img src="pics/final-pic.png" alt="final-pic" width="500"/>
+</p>
 
-Bingo! You are connected from Jenkins to Kubernetes server.
-
-Now enter the Jenkins browser and run the pipeline. You must get the following outcome:
-
-
+Congratulations! You settled your first Game pipeline on AWS! 🥳
 
 
 
