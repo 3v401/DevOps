@@ -148,8 +148,8 @@ When you turn off your EC2 instance, you will loose access to your Jenkins pipel
 /opt/update-jenkins-url.sh
 # Any other script you may need
 ```
-3. Run: `sudo chmod +x /opt/startup-tasks.sh`
-4. Run: `sudo vim /etc/systemd/system/startup-tasks.service`
+5. Run: `sudo chmod +x /opt/startup-tasks.sh`
+6. Run: `sudo vim /etc/systemd/system/startup-tasks.service`
 ```
 [Unit]
 Description=Run all custom startup scripts after boot
@@ -166,7 +166,7 @@ ExecStart=/opt/startup-tasks.sh
 # Run automatically while booting
 WantedBy=multi-user.target
 ```
-5. Activate the service again: `sudo systemctl daemon-reload && sudo systemctl enable startup-tasks.service`
+7. Activate the service again: `sudo systemctl daemon-reload && sudo systemctl enable startup-tasks.service`
 
 ### SSH communication Jenkins - Ansible server
 
@@ -212,18 +212,18 @@ For Ansible installation I used the following [tutorial post](https://www.digita
 
 Docker is an open-source containerization platform that allows developers to package applications and their dependencies into lightweight, portable containers. For Docker installation I used the following [tutorial post](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-20-04). We will use Docker in Ansible server for: Building Docker image + tagging + pushing image to DockerHub. Then K8s server will download this image from DockerHub and Deploy the game.
 
-3. Install required dependencies for Docker: `apt install apt-transport-https ca-certificates curl software-properties-common -y`
-4. Add the Docker GPG key to verify package authenticity: `curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -`
+1. Install required dependencies for Docker: `apt install apt-transport-https ca-certificates curl software-properties-common -y`
+2. Add the Docker GPG key to verify package authenticity: `curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -`
 
       i. `-fsSL` : Ensures a silent, fail-safe, and secure download.
 
       ii. `apt-key add -` : Adds the downloaded GPG key to verify Docker packages.
 
-5. Add the official Docker repository to APT sources: `add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"`
-6. Check available Docker versions and repository priority: `apt-cache policy docker-ce`
-7. Install Docker CE (Community Edition): `apt install docker-ce -y`
-8. Exit root mode and add your user to the docker group: `sudo usermod -aG docker $USER`
-9. Check Docker service status: `systemctl status docker`
+3. Add the official Docker repository to APT sources: `add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"`
+4. Check available Docker versions and repository priority: `apt-cache policy docker-ce`
+5. Install Docker CE (Community Edition): `apt install docker-ce -y`
+6. Exit root mode and add your user to the docker group: `sudo usermod -aG docker $USER`
+7. Check Docker service status: `systemctl status docker`
 
 ![alt text](pics/pic10.png)
 
@@ -318,24 +318,22 @@ To expose the Tetris app (contained in a K8s Pod) through AWS, usually the easie
 
 In our application, Kubernetes will ask AWS to create an Classic Load Balancer (CLB) automatically. This CLB will have a public DNS to access from the browser. To enable a CLB go where the `Service.yml` file is located.
 
-For an self-organized K8s EC2 instance being able to create and administrate AWS resources (e.g., LB, EBS volumns, etc) there are two requirements:
+For an self-organized K8s EC2 instance being able to create and administrate AWS resources (e.g., LB, EBS volumns, etc) there are some requirements:
 
- 2. `kube-controller-manager` (control plane) must have `cloud-provider` set to `external`.
- 3. Install external cloud provider (AWS Cloud Controller Manager, CCM)
- 4. The EC2 instance that runs the control plane must have an IAM role with certain permissions.
+ 1. `kube-controller-manager` (control plane) must have `cloud-provider` set to `external`.
+ 2. Install external cloud provider (AWS Cloud Controller Manager, CCM)
+ 3. The EC2 instance that runs the control plane must have an IAM role with certain permissions.
 
-This way, when K8s (`kube-controller-manager`) calls the AWS API (to create the LB), it will use the IAM role assigned.
-
-2. Verify status: `sudo systemctl status containerd`
+This way, when K8s (`kube-controller-manager`) calls the AWS API (to create the LB), it will use the IAM role assigned. Verify status: `sudo systemctl status containerd`
 
 ### AWS Cloud Controller Manager (CCM)
 
 When deploying AWS Cloud Controller Manager (CCM) as a DaemonSet in the cluster, it will be responsible for creating Load Balancers, managing nodes, etc. The aws-cloud-controller-manager Pod is the one that uses the credentials of the instance's IAM Role and manages everything. After initializing kubeadm:
 
 
-2. Install (CNI) network plugin (Flannel). Without CNI the Pods of CoreDNS and other components can't initiate: `kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml`
-3. Install Helm: `sudo snap install helm --classic`
-5. Install AWS CCM:
+1. Install (CNI) network plugin (Flannel). Without CNI the Pods of CoreDNS and other components can't initiate: `kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml`
+2. Install Helm: `sudo snap install helm --classic`
+3. Install AWS CCM:
 
 ```
 helm repo add aws-cloud-controller-manager https://kubernetes.github.io/cloud-provider-aws
@@ -347,14 +345,13 @@ helm install aws-ccm aws-cloud-controller-manager/aws-cloud-controller-manager
 
 1. Execute: `sudo vim /etc/kubernetes/manifests/kube-controller-manager.yaml`
 2. Add the following lines `- --cloud-provider=external` and `- --cluster-name=mycluster` to the section: `spec.containers.command:`
-
-1. Verify that the aws-cloud-controller-manager Pod is running on kube-system: `kubectl get pods -n kube-system`
-2. You should get back something like `aws-cloud-controller-manager-xxxxx`. Check its logs: `kubectl logs -n kube-system aws-cloud-controller-manager-xxxxx`.
+3. . Verify that the aws-cloud-controller-manager Pod is running on kube-system: `kubectl get pods -n kube-system`
+4. You should get back something like `aws-cloud-controller-manager-xxxxx`. Check its logs: `kubectl logs -n kube-system aws-cloud-controller-manager-xxxxx`.
 
 ![alt text](pics/picX-kubectl-logs.png)
 
-4. Verify whether the Pod is hung for other motive: `kubectl describe pod -n kube-system aws-cloud-controller-manager-xxxxx`
-5. Execute: `kubectl get pods -n kube-system`.
+5. Verify whether the Pod is hung for other motive: `kubectl describe pod -n kube-system aws-cloud-controller-manager-xxxxx`
+6. Execute: `kubectl get pods -n kube-system`.
 
 If you get back one Pod categorized as `CrashLoopBackOff` it means that the container is being recursively initialized due to an internal error. This error usually is that the AWS CCM can't access to the AWS API (lacks of IAM Role). For a single-node cluster (control plane + worker on the same instance), Flannel must be allowed (and any essential DaemonSets) to run on the same node. Remove the taint: `kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-` With this, Flannel will programm on the control-plane node and will create `/run/flannel/subnet.env` for the network to work (`kubernetes.io/cluster/<CLUSTER_NAME>=owned`).
 
@@ -529,7 +526,7 @@ In the Jenkins pipeline add the following snippet:
     }
 ```
 
-3. After running this Jenkins snippet pipeline, in your Ansible-server run: `sudo docker image ls`
+After running this Jenkins snippet pipeline, in your Ansible-server run: `sudo docker image ls`
 
 <p>
   <img src="pics/pic19.png" alt="pic19" width="500"/>
@@ -658,6 +655,3 @@ Grab the public (CLB) IP address from the command: `kubectl describe svc tetris-
 </p>
 
 Congratulations! You settled your first Game pipeline on AWS! 🥳
-
-
-
