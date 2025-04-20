@@ -1,0 +1,17 @@
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+terraform.tfvars
+*.tfvars
+
+# Editor/IDE (vscode/jetbrains)
+*.swp
+*.swo
+.vscode/
+.idea/
+
