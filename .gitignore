@@ -8,6 +8,7 @@ override.tf
 override.tf.json
 terraform.tfvars
 *.tfvars
+*.auto.tfvars
 
 # Editor/IDE (vscode/jetbrains)
 *.swp
@@ -15,3 +16,8 @@ terraform.tfvars
 .vscode/
 .idea/
 
+# Others:
+
+*.pem
+*.key
+*.pub
