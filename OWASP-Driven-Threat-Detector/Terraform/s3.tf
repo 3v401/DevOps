@@ -2,7 +2,7 @@
 # Goal: Store logs
 
 resource "aws_s3_bucket" "my_s3_bucket" {
-  bucket = "my-s3-bucket"
+  bucket = "my_s3_bucket"
 
   tags = {
     Name        = "My bucket"

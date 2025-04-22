@@ -143,9 +143,23 @@ resource "aws_nat_gateway" "my_NAT_gateway" {
 
 
 # NAT EIP:
-# Elastic IP (EIP) gives the NAT Gateway a static public IP so it can reach the internet.
+# Elastic IP (EIP) gives the NAT Gateway a static public IP so private subnets can reach the internet to download CVEs, packages...
 resource "aws_eip" "my_main_nat_eip" {
   tags = {
     Name = "my_main_nat_eip"
   }
+}
+
+# API EIP (Elastic IP) for API EC2 instance
+# This  EIP will be used for CloudFlare to point your A record
+
+resource "aws_eip" "api_eip" {
+  tags = {
+    Name = "api_static_ip"
+  }
+}
+
+resource "aws_eip_association" "api_eip_assoc" {
+  instance_id   = aws_instance.my_api_EC2_instance.id
+  allocation_id = aws_eip.api_eip.id
 }
