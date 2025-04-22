@@ -126,7 +126,7 @@ resource "aws_route_table" "my_private_route_table" {
 # (Allow private subnets to reach the internet)
 
 resource "aws_nat_gateway" "my_NAT_gateway" {
-  allocation_id = aws_eip.example.id
+  allocation_id = aws_eip.my_main_nat_eip.id
   # NAT Gateways must always be created in a public subnet.
   # NAT Gateway needs public internet access to relay outbound traffic from private subnets.
   # It uses the Internet Gateway, so it must be in a subnet that’s publicly routed.

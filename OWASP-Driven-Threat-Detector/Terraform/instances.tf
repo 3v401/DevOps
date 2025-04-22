@@ -13,7 +13,7 @@ resource "aws_instance" "my_bastion_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_bastion_key_auth.id
-  vpc_security_group_ids = [aws_security_group.my_fourth_allow_tls_ipv4.id]
+  vpc_security_group_ids = [aws_security_group.my_fourth_allow_tls.id]
   subnet_id = aws_subnet.my_public_subnet_1.id
   user_data = file("userdata_bastion.tpl") # configuration file to bootstrap the server
 
