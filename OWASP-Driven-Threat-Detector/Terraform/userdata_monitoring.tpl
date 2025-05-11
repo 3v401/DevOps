@@ -3,7 +3,6 @@
 # Log setup
 exec > >(tee /var/log/userdata-monitoring.log | logger -t userdata -s 2>/dev/console) 2>&1
 
-# Update and install dependencies
 apt update && apt -y upgrade
 apt install -y curl wget gnupg2 software-properties-common apt-transport-https ufw
 
@@ -64,3 +63,10 @@ ufw allow OpenSSH
 ufw allow 3000    # Grafana UI
 ufw allow 9090    # Prometheus UI
 ufw --force enable
+
+# Add Bastion ssh connection internally:
+
+mkdir -p /home/ubuntu/.ssh
+echo "${bastion_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
+chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+chmod 600 /home/ubuntu/.ssh/authorized_keys

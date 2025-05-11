@@ -9,13 +9,41 @@ resource "aws_key_pair" "my_bastion_key_auth" {
   public_key = file(var.bastion_public_key_path)
 }
 
+# RSA key of size 4096 bits
+# This key will be used to connect internally Bastion to other EC2
+# via SSH
+resource "tls_private_key" "bastion_internal" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "local_file" "bastion_private_key" {
+  content  = tls_private_key.bastion_internal.private_key_pem
+  filename = "${path.module}/bastion_internal.pem"
+  file_permission = "0600"
+}
+
+locals {
+  bastion_internal_pubkey = tls_private_key.bastion_internal.public_key_openssh
+}
+
+data "template_file" "bastion_userdata" {
+  template = file("${path.module}/userdata_bastion.tpl")
+  vars = {
+    bastion_internal_pem = tls_private_key.bastion_internal.private_key_pem
+    bastion_internal_pubkey = tls_private_key.bastion_internal.public_key_openssh
+  }
+}
+
+
 resource "aws_instance" "my_bastion_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_bastion_key_auth.id
   vpc_security_group_ids = [aws_security_group.my_fourth_allow_tls.id]
   subnet_id = aws_subnet.my_public_subnet_1.id
-  user_data = file("userdata_bastion.tpl") # configuration file to bootstrap the server
+  user_data = data.template_file.bastion_userdata.rendered
+  # configuration file to bootstrap the server
 
   root_block_device {
     volume_size = 10
@@ -35,13 +63,22 @@ resource "aws_key_pair" "my_api_key_auth" {
   public_key = file(var.api_public_key_path)
 }
 
+data "template_file" "api_userdata" {
+  template = file("${path.module}/userdata_api.tpl")
+  vars = {
+    bastion_internal_pubkey = local.bastion_internal_pubkey
+  }
+}
+
 resource "aws_instance" "my_api_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_api_key_auth.id
   vpc_security_group_ids = [aws_security_group.my_first_allow_tls.id]
   subnet_id = aws_subnet.my_public_subnet_2.id
-  user_data = file("userdata_api.tpl") # configuration file to bootstrap the server
+  user_data = data.template_file.api_userdata.rendered
+  # configuration file to bootstrap the server + .pub key to allow ssh connection
+  # from Bastion to this EC2 instance.
 
   root_block_device {
     volume_size = 10
@@ -61,13 +98,22 @@ resource "aws_key_pair" "my_jenkins_key_auth" {
   public_key = file(var.jenkins_public_key_path)
 }
 
+data "template_file" "jenkins_userdata" {
+  template = file("${path.module}/userdata_jenkins.tpl")
+  vars = {
+    bastion_internal_pubkey = local.bastion_internal_pubkey
+  }
+}
+
 resource "aws_instance" "my_jenkins_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_jenkins_key_auth.id
   vpc_security_group_ids = [aws_security_group.my_second_allow_tls.id]
   subnet_id = aws_subnet.my_private_subnet_1.id
-  user_data = file("userdata_jenkins.tpl") # configuration file to bootstrap the server
+  user_data = data.template_file.jenkins_userdata.rendered
+  # configuration file to bootstrap the server + .pub key to allow ssh connection
+  # from Bastion to this EC2 instance.
   iam_instance_profile = aws_iam_instance_profile.my_ec2_instance_profile.name
 
   root_block_device {
@@ -88,13 +134,22 @@ resource "aws_key_pair" "my_scanner_key_auth" {
   public_key = file(var.scanner_public_key_path)
 }
 
+data "template_file" "scanner_userdata" {
+  template = file("${path.module}/userdata_scanner.tpl")
+  vars = {
+    bastion_internal_pubkey = local.bastion_internal_pubkey
+  }
+}
+
 resource "aws_instance" "my_scanner_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_scanner_key_auth.id
   vpc_security_group_ids = [aws_security_group.my_second_allow_tls.id]
   subnet_id = aws_subnet.my_private_subnet_1.id
-  user_data = file("userdata_scanner.tpl") # configuration file to bootstrap the server
+  user_data = data.template_file.scanner_userdata.rendered
+  # configuration file to bootstrap the server + .pub key to allow ssh connection
+  # from Bastion to this EC2 instance.
   iam_instance_profile = aws_iam_instance_profile.my_ec2_instance_profile.name
 
   root_block_device {
@@ -115,13 +170,22 @@ resource "aws_key_pair" "my_monitoring_key_auth" {
   public_key = file(var.monitoring_public_key_path)
 }
 
+data "template_file" "monitoring_userdata" {
+  template = file("${path.module}/userdata_monitoring.tpl")
+  vars = {
+    bastion_internal_pubkey = local.bastion_internal_pubkey
+  }
+}
+
 resource "aws_instance" "my_monitoring_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_monitoring_key_auth.id
   vpc_security_group_ids = [aws_security_group.my_third_allow_tls.id]
   subnet_id = aws_subnet.my_private_subnet_2.id
-  user_data = file("userdata_monitoring.tpl") # configuration file to bootstrap the server
+  user_data = data.template_file.monitoring_userdata.rendered
+  # configuration file to bootstrap the server + .pub key to allow ssh connection
+  # from Bastion to this EC2 instance.
   iam_instance_profile = aws_iam_instance_profile.my_ec2_instance_profile.name
 
   root_block_device {
