@@ -1,0 +1,123 @@
+pipeline {
+    agent any
+    // Use any available Jenkins agent (node) to run the pipeline
+    // Order of the process:
+    // 1:
+    // 2:
+    // 3:
+    // 4:
+    // 5:
+    // 6:
+    // 7:
+
+    environment {
+        SCANNER_SERVER = 'ubuntu@10.0.3.101'
+        // The private IP of the EC2 instance used as a security scanner
+        SCANNER_KEY = credentials('scanner-private-key')
+        // Inject the Jenkins SSH private key credential
+        IMAGE_NAME = 'dockerwhale123whaledocker/jenkins-pipeline'
+    }
+
+    stages {
+        // Definition of the stages of the pipeline:
+        stage('Checkout') {
+            // First stage: Clone tetris source code
+            steps {
+                git url: 'https://github.com/djblue/tetris.git', branch: 'master'
+                // Clone master branch from repo
+            }
+        }
+        stage('OWASP: Dependency Check') {
+            // Second Stage: Run OWASP Dependency-Check
+            steps {
+                sshagent(credentials: ['scanner-private-key']) {
+                    // Load the scanner SSH key and
+                    // send the source code (repository) to scanner EC2 for analysis
+                    // output as an HTML report
+                    sh '''
+                    scp -o StrictHostKeyChecking=no -r . $SCANNER_SERVER:/home/ubuntu/tetris-source
+                    # Run Dependency Check on the scanner EC2:
+                    ssh -o StrictHostKeyChecking=no $SCANNER_SERVER '
+                        dependency-check.sh --project "tetris-game" --scan /home/ubuntu/tetris-source --format HTML --out /home/ubuntu/scan-reports
+                    '
+                    '''
+                }
+            }
+        }
+        stage('Build Docker Image') {
+            // Third Stage: Build Docker Image
+            steps {
+                sshagent(['ansible-access']) {
+                    sh '''
+                    echo "Cloning source code into Ansible-server..."
+                    ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> '
+                        rm -rf tetris && git clone https://github.com/djblue/tetris.git
+                    '
+                    echo "Building Docker image on Ansible-server..."
+                    ssh ubuntu@<ANSIBLE_INTERNAL_IP> '
+                        cd tetris &&
+                        docker build -t $JOB_NAME:v1.$BUILD_ID .
+                    '
+                    '''
+                }
+            }
+        }
+        stage('Tag Docker Image') {
+            // Fourth Stage: Tag Docker Image
+            steps {
+                sshagent(['ansible-access']) {
+                    sh '''
+                    echo "Tagging Docker Image on Ansible-server..."
+                    ssh ubuntu@<ANSIBLE_INTERNAL_IP> '
+                        docker tag $JOB_NAME:v1.$BUILD_ID dockerwhale123whaledocker/$JOB_NAME:v1.$BUILD_ID &&
+                        docker tag $JOB_NAME:v1.$BUILD_ID dockerwhale123whaledocker/$JOB_NAME:latest
+                    '
+                    '''
+                }
+            }
+        }
+        stage('Push Docker Image to DockerHub') {
+            // Fifth Stage: Push Docker Image to DockerHub
+            steps {
+                sshagent(credentials: ['ansible-access']){
+                    withCredentials([string(credentialsId: 'dockerhub_pass', variable: 'dockerhub_pass')]) {
+                        sh '''
+                        echo "Logging into DockerHub and pushing image from Ansible-server..."
+                        ssh -o StrictHostKeyChecking=no ubuntu@<ANSIBLE_INTERNAL_IP> "
+                            echo $dockerhub_pass | docker login -u dockerwhale123whaledocker --password-stdin &&
+                            docker push dockerwhale123whaledocker/$JOB_NAME:v1.$BUILD_ID &&
+                            docker push dockerwhale123whaledocker/$JOB_NAME:latest
+                            "
+                            '''
+                    }
+                }
+            }
+        }
+        stage('Trivy: Image Scan') {
+            // Sixth Stage: Pull Docker image from DockerHub
+            // Scan Docker Image for vulnerabilities with Trivy
+            steps {
+                sshagent(credentials: ['scanner-private-key']) {
+                    // Load the scanner SSH key again and
+                    // SSH into the EC2 scanner and run the Trivy scan on the Docker Image
+                    // Fetch the scan report to Jenkins
+                    sh '''
+                    echo "Running Trivy Image Scanning on Scanner-server..."
+                    ssh -o StrictHostKeyChecking=no $SCANNER_SERVER '
+                        docker pull $IMAGE_NAME &&
+                        trivy image -f html -o trivy-report.html $IMAGE_NAME
+                    '
+                    scp -o StrictHostKeyChecking=no $SCANNER_SERVER:trivy-report.html .
+                    '''
+                }
+            }
+        }
+        stage('Archive Reports') {
+            // Seventh Stage: Archive generated reports
+            steps {
+                archiveArtifacts artifacts: '**/scan-reports/*.html', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'trivy-report.html', allowEmptyArchive: true
+            }
+        }
+    }
+}
