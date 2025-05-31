@@ -32,3 +32,8 @@ variable "monitoring_public_key_path" {
   description = "Path to the monitoring public key"
   type        = string
 }
+
+variable "builder_public_key_path" {
+  description = "Path to the builder public key"
+  type        = string
+}

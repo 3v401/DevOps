@@ -1,13 +1,48 @@
 #!/bin/bash
+set -e
 
-# Save all output data setup logs in userdata-jenkins.log
-# >(command) runs a command in a subshell
+# Save setup logs
 exec > >(tee /var/log/userdata-jenkins.log | logger -t userdata -s 2>/dev/console) 2>&1
 
-apt update && apt -y upgrade
-apt install -y openjdk-17-jdk curl gnupg2 ufw
+# ------------------------------------------------------------------ SSH KEYS
+mkdir -p /home/ubuntu/.ssh
+echo "${bastion_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
+echo "${jenkins_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
+chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+chmod 600 /home/ubuntu/.ssh/authorized_keys
 
-# Add Jenkins repo, key and install
+# echo does not handle multiline comments well:
+cat <<EOF > /home/ubuntu/.ssh/jenkins_internal.pem
+${jenkins_internal_pem}
+EOF
+chown ubuntu:ubuntu /home/ubuntu/.ssh/jenkins_internal.pem
+chmod 600 /home/ubuntu/.ssh/jenkins_internal.pem
+
+# ------------------------------------------------------------------ CONFIGURE EBS
+# Wait until a 15G unmounted volume appears
+while ! lsblk -dn -o NAME,SIZE | grep "15G" >/dev/null; do
+  echo "Waiting for 15G EBS volume to attach..."
+  sleep 1
+done
+
+EBS_DEV=$(lsblk -dn -o NAME,SIZE | grep "15G" | awk '{print $1}')
+EBS_PATH="/dev/$EBS_DEV"
+
+# Format if needed
+if ! file -s "$EBS_PATH" | grep -q 'ext4'; then
+  mkfs.ext4 "$EBS_PATH"
+fi
+
+# ------------------------------------------------------------------ INSTALL JENKINS
+# Wait until network is available
+until ping -c1 archive.ubuntu.com &>/dev/null; do
+  echo "Waiting for internet connection..."
+  sleep 2
+done
+
+sudo apt update && apt -y upgrade
+sudo apt install -y openjdk-17-jdk curl gnupg2 ufw
+
 mkdir -p /etc/apt/keyrings
 curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | tee /etc/apt/keyrings/jenkins-keyring.asc > /dev/null
 echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
@@ -18,6 +53,7 @@ apt install -y jenkins
 systemctl enable jenkins
 systemctl start jenkins
 
+# ------------------------------------------------------------------ FIREWALL
 # Open firewall ports
 ufw allow OpenSSH
 # Jenkins runs on port 8080 by default (to open from browser)
@@ -28,7 +64,7 @@ ufw allow 80
 ufw allow 443
 ufw --force enable
 
-# Store Jenkins initial admin password in file
+# ------------------------------------------------------------------ JENKINS PASSWORD
 echo "Jenkins initial admin password:" > /home/ubuntu/jenkins_password.txt
 cat /var/lib/jenkins/secrets/initialAdminPassword >> /home/ubuntu/jenkins_password.txt
 # Set file ownership to ubuntu (default user)
@@ -36,26 +72,38 @@ chown ubuntu:ubuntu /home/ubuntu/jenkins_password.txt
 # Only the owner (ubuntu) can read + write (others no access)
 chmod 600 /home/ubuntu/jenkins_password.txt
 
-# Format and mount EBS (if first time)
-# xvdf1 (partition 1 on the disk)
-if [ ! -e /dev/xvdf1 ]; then
-    mkfs -t ext4 /dev/xvdf
-    # If the partition does not exist -> Format the whole
-    # volume with the ext4 filesystem
-fi
+# ------------------------------------------------------------------ NODE EXPORTER
+# Install Node Exporter
+useradd --no-create-home --shell /bin/false node_exporter
+wget https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-amd64.tar.gz
+tar xvfz node_exporter-1.6.1.linux-amd64.tar.gz
+cp node_exporter-1.6.1.linux-amd64/node_exporter /usr/local/bin/
+chown node_exporter:node_exporter /usr/local/bin/node_exporter
 
+# Create systemd service
+cat <<EOF > /etc/systemd/system/node_exporter.service
+[Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+Type=simple
+ExecStart=/usr/local/bin/node_exporter
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reexec
+systemctl enable node_exporter
+systemctl start node_exporter
+
+# ------------------------------------------------------------------ CONFIGURE EBS
+
+# After Jenkins installation, mount EBS to Jenkins var/lib/jenkins
 mkdir -p /var/lib/jenkins
-mount /dev/xvdf /var/lib/jenkins
-echo "/dev/xvdf /var/lib/jenkins ext4 defaults, nofail 0 2" >> /etc/fstab
-# /dev/xvdf: Device to mount
-# /var/lib/jenkins: Where to mount it
-# ext4: Filesystem type
-# nofail: Prevent boot failure if volume is missing
-# 0 (skip dump) 2 (run fsck, disk check second)
-
-# Add Bastion ssh connection internally:
-
-mkdir -p /home/ubuntu/.ssh
-echo "${bastion_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
-chown -R ubuntu:ubuntu /home/ubuntu/.ssh
-chmod 600 /home/ubuntu/.ssh/authorized_keys
+mount "$EBS_PATH" /var/lib/jenkins
+echo "$EBS_PATH /var/lib/jenkins ext4 defaults,nofail 0 2" >> /etc/fstab
+chown -R jenkins:jenkins /var/lib/jenkins

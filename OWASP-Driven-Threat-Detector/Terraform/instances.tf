@@ -1,6 +1,6 @@
 # 5 EC2 instances + Keys:
 
-# 1st instance: Bastion Host + Key pair
+# 1st instance: Bastion Host + Key pair---------------------------------------------------BASTION
 # Purpose: Secure access point to private instances (via SSH)
 # Install: Only SSH
 
@@ -40,7 +40,7 @@ resource "aws_instance" "my_bastion_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_bastion_key_auth.id
-  vpc_security_group_ids = [aws_security_group.my_fourth_allow_tls.id]
+  vpc_security_group_ids = [aws_security_group.sg_BASTION.id]
   subnet_id = aws_subnet.my_public_subnet_1.id
   user_data = data.template_file.bastion_userdata.rendered
   # configuration file to bootstrap the server
@@ -54,7 +54,7 @@ resource "aws_instance" "my_bastion_EC2_instance" {
   }
 }
 
-# 2nd instance: Public API server + Key pair
+# 2nd instance: Public API server + Key pair---------------------------------------------------API
 # Purpose: Hosts your public-facing application (API)
 # Install Nginx, backendapp and Certbot
 
@@ -67,6 +67,7 @@ data "template_file" "api_userdata" {
   template = file("${path.module}/userdata_api.tpl")
   vars = {
     bastion_internal_pubkey = local.bastion_internal_pubkey
+    jenkins_internal_pubkey = local.jenkins_internal_pubkey
   }
 }
 
@@ -74,7 +75,7 @@ resource "aws_instance" "my_api_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_api_key_auth.id
-  vpc_security_group_ids = [aws_security_group.my_first_allow_tls.id]
+  vpc_security_group_ids = [aws_security_group.sg_API.id]
   subnet_id = aws_subnet.my_public_subnet_2.id
   user_data = data.template_file.api_userdata.rendered
   # configuration file to bootstrap the server + .pub key to allow ssh connection
@@ -89,7 +90,7 @@ resource "aws_instance" "my_api_EC2_instance" {
   }
 }
 
-# 3rd instance: Jenkins server + Key pair
+# 3rd instance: Jenkins server + Key pair---------------------------------------------------JENKINS
 # Purpose: Automates build, test, deploy
 # Install : Jenkins, Git, Docker
 
@@ -98,9 +99,29 @@ resource "aws_key_pair" "my_jenkins_key_auth" {
   public_key = file(var.jenkins_public_key_path)
 }
 
+# RSA key of size 4096 bits
+# This key will be used to connect internally Jenkins to other EC2
+# instances via SSH during Pipeline Stages
+resource "tls_private_key" "jenkins_internal" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "local_file" "jenkins_private_key" {
+  content  = tls_private_key.jenkins_internal.private_key_pem
+  filename = "${path.module}/jenkins_internal.pem"
+  file_permission = "0600"
+}
+
+locals {
+  jenkins_internal_pubkey = tls_private_key.jenkins_internal.public_key_openssh
+}
+
 data "template_file" "jenkins_userdata" {
   template = file("${path.module}/userdata_jenkins.tpl")
   vars = {
+    jenkins_internal_pem = tls_private_key.jenkins_internal.private_key_pem
+    jenkins_internal_pubkey = tls_private_key.jenkins_internal.public_key_openssh
     bastion_internal_pubkey = local.bastion_internal_pubkey
   }
 }
@@ -109,7 +130,7 @@ resource "aws_instance" "my_jenkins_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_jenkins_key_auth.id
-  vpc_security_group_ids = [aws_security_group.my_second_allow_tls.id]
+  vpc_security_group_ids = [aws_security_group.sg_JENKINS.id]
   subnet_id = aws_subnet.my_private_subnet_1.id
   user_data = data.template_file.jenkins_userdata.rendered
   # configuration file to bootstrap the server + .pub key to allow ssh connection
@@ -125,7 +146,7 @@ resource "aws_instance" "my_jenkins_EC2_instance" {
   }
 }
 
-# 4th instance: OWASP Scanner + Key pair
+# 4th instance: OWASP Scanner + Key pair---------------------------------------------------SCANNER
 # Purpose: Runs vulnerability scanning (DevSecOps)
 # Install: OWASP Dependency-Check, ZAP or Trivy
 
@@ -138,6 +159,7 @@ data "template_file" "scanner_userdata" {
   template = file("${path.module}/userdata_scanner.tpl")
   vars = {
     bastion_internal_pubkey = local.bastion_internal_pubkey
+    jenkins_internal_pubkey = local.jenkins_internal_pubkey
   }
 }
 
@@ -145,7 +167,7 @@ resource "aws_instance" "my_scanner_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_scanner_key_auth.id
-  vpc_security_group_ids = [aws_security_group.my_second_allow_tls.id]
+  vpc_security_group_ids = [aws_security_group.sg_SCANNER.id]
   subnet_id = aws_subnet.my_private_subnet_1.id
   user_data = data.template_file.scanner_userdata.rendered
   # configuration file to bootstrap the server + .pub key to allow ssh connection
@@ -161,7 +183,7 @@ resource "aws_instance" "my_scanner_EC2_instance" {
   }
 }
 
-# 5th instance: Monitorin + Key pair
+# 5th instance: Monitorin + Key pair---------------------------------------------------MONITORING
 # Purpose: Aggregates logs, metrics, alerts
 # Install: Prometheus, Grafana, Loki, or ELK Stack
 
@@ -181,7 +203,7 @@ resource "aws_instance" "my_monitoring_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"
   key_name = aws_key_pair.my_monitoring_key_auth.id
-  vpc_security_group_ids = [aws_security_group.my_third_allow_tls.id]
+  vpc_security_group_ids = [aws_security_group.sg_MONITORING.id]
   subnet_id = aws_subnet.my_private_subnet_2.id
   user_data = data.template_file.monitoring_userdata.rendered
   # configuration file to bootstrap the server + .pub key to allow ssh connection
@@ -194,5 +216,43 @@ resource "aws_instance" "my_monitoring_EC2_instance" {
 
   tags = {
     Name = "monitoring-server"
+  }
+}
+
+# 6th instance: Builder + Key pair---------------------------------------------------BUILDER
+# Purpose: Builds images, tags it and uploads it to DockerHub
+# Install: AWS CLI, Docker, kubectl
+
+resource "aws_key_pair" "my_builder_key_auth" {
+  key_name   = "my_builder_key"
+  public_key = file(var.builder_public_key_path)
+}
+
+data "template_file" "builder_userdata" {
+  template = file("${path.module}/userdata_builder.tpl")
+  vars = {
+    bastion_internal_pubkey = local.bastion_internal_pubkey
+    jenkins_internal_pubkey = local.jenkins_internal_pubkey
+    VPC_ID                  = aws_vpc.my_main_vpc.id
+  }
+}
+
+resource "aws_instance" "my_builder_EC2_instance" {
+  ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
+  instance_type = "t3.micro"
+  key_name = aws_key_pair.my_builder_key_auth.id
+  vpc_security_group_ids = [aws_security_group.sg_BUILDER.id]
+  subnet_id = aws_subnet.my_private_subnet_1.id
+  user_data = data.template_file.builder_userdata.rendered
+  # configuration file to bootstrap the server + .pub key to allow ssh connection
+  # from Bastion to this EC2 instance.
+  iam_instance_profile = aws_iam_instance_profile.builder_profile.name
+
+  root_block_device {
+    volume_size = 10
+  }
+
+  tags = {
+    Name = "builder-server"
   }
 }
