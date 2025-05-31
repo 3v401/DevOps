@@ -21,3 +21,5 @@ terraform.tfvars
 *.pem
 *.key
 *.pub
+.env
+__pycache__/
