@@ -1,0 +1,26 @@
+# Manages how many replicas and which image to run
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+ name: fastapi-app
+spec:                                     # Specification of desired state
+ replicas: 2
+ selector:                                # Tell K8s how to match Pods with this Deployment
+  matchLabels:
+   app: fastapi                           # Match pods that have this label
+ template:                                # Template for creating new pods
+  metadata:
+   labels:
+    app: fastapi                          # Label assigned to created pod
+  spec:                                   # Specification of pod
+   containers:
+   - name: fastapi
+     image: DOCKERHUB_USER:IMAGE
+     ports:
+     - containerPort: 8000
+     env:                                 # Environment variables
+     - name: OPENAI_API_KEY
+       valueFrom:
+       secretKeyRef:
+       name: openai-secret
+       key: api-key
