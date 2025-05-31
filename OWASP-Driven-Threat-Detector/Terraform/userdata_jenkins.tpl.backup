@@ -1,0 +1,108 @@
+#!/bin/bash
+# ------------------------------------------------------------------------------------------------------------------------------------------------- KEY ACCESS
+# Add Bastion and Jenkins SSH connection internally:
+mkdir -p /home/ubuntu/.ssh
+echo "${bastion_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
+echo "${jenkins_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
+chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+chmod 600 /home/ubuntu/.ssh/authorized_keys
+
+# echo does not handle multiline comments well:
+cat <<EOF > /home/ubuntu/.ssh/jenkins_internal.pem
+${jenkins_internal_pem}
+EOF
+
+chown ubuntu:ubuntu /home/ubuntu/.ssh/jenkins_internal.pem
+chmod 600 /home/ubuntu/.ssh/jenkins_internal.pem
+
+# Save all output data setup logs in userdata-jenkins.log
+# >(command) runs a command in a subshell
+exec > >(tee /var/log/userdata-jenkins.log | logger -t userdata -s 2>/dev/console) 2>&1
+
+# Add Jenkins repo, key and install --------------------------------------------------------------------------------------------------------------------- JENKINS CONFIG
+apt update && apt -y upgrade
+apt install -y openjdk-17-jdk curl gnupg2 ufw
+
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | tee /etc/apt/keyrings/jenkins-keyring.asc > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
+apt update
+apt install -y jenkins
+
+# Start Jenkins service
+systemctl enable jenkins
+systemctl start jenkins
+
+# Open firewall ports
+ufw allow OpenSSH
+# Jenkins runs on port 8080 by default (to open from browser)
+ufw allow 8080
+# HTTP used during plugin installation
+ufw allow 80
+# HTTPS used when setting SSL
+ufw allow 443
+ufw --force enable
+
+# Store Jenkins initial admin password in file
+echo "Jenkins initial admin password:" > /home/ubuntu/jenkins_password.txt
+cat /var/lib/jenkins/secrets/initialAdminPassword >> /home/ubuntu/jenkins_password.txt
+# Set file ownership to ubuntu (default user)
+chown ubuntu:ubuntu /home/ubuntu/jenkins_password.txt
+# Only the owner (ubuntu) can read + write (others no access)
+chmod 600 /home/ubuntu/jenkins_password.txt
+
+## Node Exporter for Prometheus:
+
+# Install Node Exporter
+useradd --no-create-home --shell /bin/false node_exporter
+wget https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-amd64.tar.gz
+tar xvfz node_exporter-1.6.1.linux-amd64.tar.gz
+cp node_exporter-1.6.1.linux-amd64/node_exporter /usr/local/bin/
+chown node_exporter:node_exporter /usr/local/bin/node_exporter
+
+# Create systemd service
+cat <<EOF > /etc/systemd/system/node_exporter.service
+[Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+Type=simple
+ExecStart=/usr/local/bin/node_exporter
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reexec
+systemctl enable node_exporter
+systemctl start node_exporter
+
+
+
+# Detect EBS device (usually /dev/nvme1n1 or /dev/xvdf) -----------------------------------------------------------------------------------------------MOUNTING
+# BEST: Wait until Everything else is configured
+# Wait until a 15G unmounted volume appears
+while ! lsblk -dn -o NAME,SIZE | grep "15G" >/dev/null; do
+  echo "Waiting for 15G EBS volume to attach..."
+  sleep 1
+done
+
+EBS_DEV=$(lsblk -dn -o NAME,SIZE | grep "15G" | awk '{print $1}')
+EBS_PATH="/dev/$EBS_DEV"
+
+# Format if needed
+if ! file -s "$EBS_PATH" | grep -q 'ext4'; then
+  mkfs.ext4 "$EBS_PATH"
+fi
+
+mkdir -p /var/lib/jenkins
+mount "$EBS_PATH" /var/lib/jenkins
+
+# ✅ Use resolved path directly
+echo "$EBS_PATH /var/lib/jenkins ext4 defaults,nofail 0 2" >> /etc/fstab
+
+# Fix ownership
+chown -R jenkins:jenkins /var/lib/jenkins
