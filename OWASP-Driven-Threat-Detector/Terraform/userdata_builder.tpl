@@ -13,21 +13,27 @@ until ping -c1 archive.ubuntu.com &>/dev/null; do
 done
 
 # Docker
-apt update -y
-apt-get install -y docker.io
+sudo apt update -y
+sudo apt-get install -y docker.io
 usermod -aG docker ubuntu
 systemctl enable docker
 systemctl start docker
 
 # AWS CLI
+sudo apt install -y unzip
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip
 sudo ./aws/install
+# Make AWS CLI globally available (for Jenkins pipeline in future)
+ln -s /usr/local/bin/aws /usr/bin/aw
 
 # kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo apt install -y curl
+curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 chmod +x kubectl
 mv kubectl /usr/local/bin/
+# Same as AWS CLI but with kubectl for Jenkins
+sudo ln -sf /usr/local/bin/kubectl /usr/bin/kubectl
 
 # Install helm
 curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash

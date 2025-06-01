@@ -49,6 +49,8 @@ chmod 600 /home/ubuntu/.ssh/authorized_keys
 apt-get install -y docker.io
 systemctl enable docker
 systemctl start docker
+usermod -aG docker ubuntu
+
 
 ## Node Exporter for Prometheus:
 
