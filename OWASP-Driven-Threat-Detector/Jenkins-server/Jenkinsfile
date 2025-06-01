@@ -12,13 +12,10 @@ pipeline {
 
     environment {
         SCANNER_IP = credentials('scanner-private-ip')
-        // The private IP of the EC2 instance used as a security scanner
         BUILDER_IP = credentials('builder-private-ip')
         MONITORING_IP = credentials('monitoring-private-ip')
-        // SCANNER_KEY = credentials('scanner-private-key')
-        // Inject the Jenkins SSH private key credential
-        IMAGE_NAME = 'dockerwhale123whaledocker/${JOB_NAME}'
     }
+
 
     stages {
         // Definition of the stages of the pipeline:
@@ -51,12 +48,10 @@ pipeline {
             steps {
                 sshagent(['builder-access']) {
                     sh '''
-                    echo "Copying source code from Jenkins into Builder-server..."
                     scp -o StrictHostKeyChecking=no -r OWASP-Driven-Threat-Detector/Builder-server ubuntu@${BUILDER_IP}:/home/ubuntu/
-                    echo "Building Docker image on Builder-server..."
-                    ssh ubuntu@${BUILDER_IP} '
-                        cd API &&
-                        docker build -t $JOB_NAME:v1.$BUILD_ID .
+                    ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
+                        cd /home/ubuntu/Builder-server/API &&
+                        docker build -t "$JOB_NAME:v1.$BUILD_ID" .
                     '
                     '''
                 }
@@ -66,13 +61,14 @@ pipeline {
             // Fourth Stage: Tag Docker Image
             steps {
                 sshagent(['builder-access']) {
-                    sh '''
-                    echo "Tagging Docker Image on Builder-server..."
-                    ssh ubuntu@${BUILDER_IP} '
-                        docker tag $JOB_NAME:v1.$BUILD_ID dockerwhale123whaledocker/$JOB_NAME:v1.$BUILD_ID &&
-                        docker tag $JOB_NAME:v1.$BUILD_ID dockerwhale123whaledocker/$JOB_NAME:latest
-                    '
-                    '''
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER')]) {
+                        sh '''
+                        ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
+                            docker tag "$JOB_NAME:v1.$BUILD_ID" "$DOCKER_USER/$JOB_NAME:v1.$BUILD_ID" &&
+                            docker tag "$JOB_NAME:v1.$BUILD_ID" "$DOCKER_USER/$JOB_NAME:latest"
+                        '
+                        '''
+                    }
                 }
             }
         }
@@ -80,15 +76,14 @@ pipeline {
             // Fifth Stage: Push Docker Image to DockerHub
             steps {
                 sshagent(credentials: ['builder-access']){
-                    withCredentials([string(credentialsId: 'dockerhub_pass', variable: 'dockerhub_pass')]) {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                         sh '''
-                        echo "Logging into DockerHub and pushing image from Builder-server..."
-                        ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} "
-                            echo $dockerhub_pass | docker login -u dockerwhale123whaledocker --password-stdin &&
-                            docker push dockerwhale123whaledocker/$JOB_NAME:v1.$BUILD_ID &&
-                            docker push dockerwhale123whaledocker/$JOB_NAME:latest
-                            "
-                            '''
+                        ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin &&
+                            docker push $DOCKER_USER/$JOB_NAME:v1.$BUILD_ID &&
+                            docker push $DOCKER_USER/$JOB_NAME:latest
+                        '
+                        '''
                     }
                 }
             }
@@ -102,10 +97,9 @@ pipeline {
                     // SSH into the EC2 scanner and run the Trivy scan on the Docker Image
                     // Fetch the scan report to Jenkins
                     sh '''
-                    echo "Running Trivy Image Scanning on Scanner-server..."
                     ssh -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP} '
-                        docker pull $IMAGE_NAME &&
-                        trivy image -f html -o trivy-report.html $IMAGE_NAME
+                        docker pull "$DOCKER_USER/$JOB_NAME" &&
+                        trivy image -f html -o trivy-report.html "$DOCKER_USER/$JOB_NAME"
                     '
                     scp -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP}:trivy-report.html .
                     '''
@@ -115,24 +109,25 @@ pipeline {
         stage('Deploy EKS') {
             steps {
                 sshagent(['builder-access']) {
-                    sh '''
-                    echo "Deploying API on EKS..."
-                    ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
-                        cd ~/EKS
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER')]) {
+                        sh '''
+                        ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
+                            cd ~/EKS
 
-                        echo "Configuring kubeconfig..."
-                        aws eks update-kubeconfig --region eu-north-1 --name API_EKS_ThreatGPT &&
-                        
-                        echo "Setting new image in deployment..."
-                        kubectl set image deployment/fastapi-app fastapi=dockerwhale123whaledocker/$JOB_NAME:v1.$BUILD_ID --record &&
-                        
-                        echo "Rollout..."
-                        kubectl rollout status deployment/fastapi-app
+                            echo "Configuring kubeconfig..."
+                            aws eks update-kubeconfig --region eu-north-1 --name API_EKS_ThreatGPT &&
+                            
+                            echo "Setting new image in deployment..."
+                            kubectl set image deployment/fastapi-app fastapi="$DOCKER_USER/$JOB_NAME:v1.$BUILD_ID" --record &&
+                            
+                            echo "Rollout..."
+                            kubectl rollout status deployment/fastapi-app
 
-                        echo "Applying ingress.yaml..."
-                        kubectl apply -f ~/EKS/ingress.yaml
-                    '
-                    '''
+                            echo "Applying ingress.yaml..."
+                            kubectl apply -f ~/EKS/ingress.yaml
+                        '
+                        '''
+                    }
                 }
             }
         }
