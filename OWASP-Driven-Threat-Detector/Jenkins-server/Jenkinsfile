@@ -9,13 +9,8 @@ pipeline {
     // 5: Trivy vulnerability scan
     // 6: Deploy image to EKS
     // 7: Archive security reports
-
-    environment {
-        SCANNER_IP = credentials('scanner-private-ip')
-        BUILDER_IP = credentials('builder-private-ip')
-        MONITORING_IP = credentials('monitoring-private-ip')
-    }
-
+    // Note: To load variables stored in Secret Text credentials
+    // withCredentials([...]) must be used to inject secret text credentials
 
     stages {
         // Definition of the stages of the pipeline:
@@ -29,45 +24,53 @@ pipeline {
         stage('OWASP: Dependency Check') {
             // Second Stage: Run OWASP Dependency-Check
             steps {
-                sshagent(credentials: ['scanner-private-key']) {
-                    // Load the scanner SSH key and
-                    // send the source code (repository) to scanner EC2 for analysis
-                    // output as an HTML report
-                    sh '''
-                    scp -o StrictHostKeyChecking=no -r OWASP-Driven-Threat-Detector ubuntu@${SCANNER_IP}:/home/ubuntu/OWASP-Driven-Threat-Detector
-                    # Run Dependency Check on the scanner EC2:
-                    ssh -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP} '
-                        dependency-check.sh --project "ThreatGPT" --scan /home/ubuntu/OWASP-Driven-Threat-Detector --format HTML --out /home/ubuntu/scan-reports
-                    '
-                    '''
+                withCredentials([string(credentialsId: 'scanner-private-ip', variable: 'SCANNER_IP')]) {
+                    sshagent(credentials: ['scanner-private-key']) {
+                        // Load the scanner SSH key and
+                        // send the source code (repository) to scanner EC2 for analysis
+                        // output as an HTML report
+                        sh """
+                        scp -o StrictHostKeyChecking=no -r OWASP-Driven-Threat-Detector ubuntu@${SCANNER_IP}:/home/ubuntu/OWASP-Driven-Threat-Detector
+                        # Run Dependency Check on the scanner EC2:
+                        ssh -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP} '
+                            dependency-check.sh --project "ThreatGPT" --scan /home/ubuntu/OWASP-Driven-Threat-Detector --format HTML --out /home/ubuntu/scan-reports
+                        '
+                        """
+                    }
                 }
             }
         }
         stage('Build Docker Image') {
             // Third Stage: Build Docker Image
             steps {
-                sshagent(['builder-private-key']) {
-                    sh '''
-                    scp -o StrictHostKeyChecking=no -r OWASP-Driven-Threat-Detector/Builder-server ubuntu@${BUILDER_IP}:/home/ubuntu/
-                    ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
-                        cd /home/ubuntu/Builder-server/API &&
-                        docker build -t "$JOB_NAME:v1.$BUILD_ID" .
-                    '
-                    '''
+                withCredentials([string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP')]) {
+                    sshagent(['builder-private-key']) {
+                        sh """
+                        scp -o StrictHostKeyChecking=no -r OWASP-Driven-Threat-Detector/Builder-server ubuntu@${BUILDER_IP}:/home/ubuntu/
+                        ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
+                            cd /home/ubuntu/Builder-server/API &&
+                            docker build -t "$JOB_NAME:v1.$BUILD_ID" .
+                        '
+                        """
+                    }
                 }
             }
         }
         stage('Tag Docker Image') {
             // Fourth Stage: Tag Docker Image
             steps {
-                sshagent(['builder-private-key']) {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER')]) {
-                        sh '''
+                withCredentials([
+                string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP'),
+                usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')
+                ]) {
+                    // Both username and password are required to declare to avoid Groovy CPS execution error
+                    sshagent(['builder-private-key']) {
+                        sh """
                         ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
                             docker tag "$JOB_NAME:v1.$BUILD_ID" "$DOCKER_USER/$JOB_NAME:v1.$BUILD_ID" &&
                             docker tag "$JOB_NAME:v1.$BUILD_ID" "$DOCKER_USER/$JOB_NAME:latest"
                         '
-                        '''
+                        """
                     }
                 }
             }
@@ -75,15 +78,18 @@ pipeline {
         stage('Push Docker Image to DockerHub') {
             // Fifth Stage: Push Docker Image to DockerHub
             steps {
-                sshagent(credentials: ['builder-private-key']){
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh '''
+                withCredentials([
+                    string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP'),
+                    usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')
+                ]) {
+                    sshagent(credentials: ['builder-private-key']){
+                        sh """
                         ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
                             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin &&
                             docker push $DOCKER_USER/$JOB_NAME:v1.$BUILD_ID &&
                             docker push $DOCKER_USER/$JOB_NAME:latest
                         '
-                        '''
+                        """
                     }
                 }
             }
@@ -92,27 +98,35 @@ pipeline {
             // Sixth Stage: Pull Docker image from DockerHub
             // Scan Docker Image for vulnerabilities with Trivy
             steps {
-                sshagent(credentials: ['scanner-private-key']) {
-                    // Load the scanner SSH key again and
-                    // SSH into the EC2 scanner and run the Trivy scan on the Docker Image
-                    // Fetch the scan report to Jenkins
-                    sh '''
-                    ssh -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP} '
-                        docker pull "$DOCKER_USER/$JOB_NAME" &&
-                        trivy image -f html -o trivy-report.html "$DOCKER_USER/$JOB_NAME"
-                    '
-                    scp -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP}:trivy-report.html .
-                    '''
+                withCredentials([
+                    string(credentialsId: 'scanner-private-ip', variable: 'SCANNER_IP'),
+                    usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')
+                ]) {
+                    sshagent(credentials: ['scanner-private-key']) {
+                        // Load the scanner SSH key again and
+                        // SSH into the EC2 scanner and run the Trivy scan on the Docker Image
+                        // Fetch the scan report to Jenkins
+                        sh """
+                        ssh -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP} '
+                            docker pull "$DOCKER_USER/$JOB_NAME" &&
+                            trivy image -f html -o trivy-report.html "$DOCKER_USER/$JOB_NAME"
+                        '
+                        scp -o StrictHostKeyChecking=no ubuntu@${SCANNER_IP}:trivy-report.html .
+                        """
+                    }
                 }
             }
         }
         stage('Deploy EKS') {
             steps {
-                sshagent(['builder-private-key']) {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER')]) {
-                        sh '''
+                withCredentials([
+                    string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP'),
+                    usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER')
+                ]) {
+                    sshagent(['builder-private-key']) {
+                        sh """
                         ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
-                            cd ~/EKS
+                            cd ~/Builder-server/EKS
 
                             echo "Configuring kubeconfig..."
                             aws eks update-kubeconfig --region eu-north-1 --name API_EKS_ThreatGPT &&
@@ -126,10 +140,40 @@ pipeline {
                             echo "Applying ingress.yaml..."
                             kubectl apply -f ~/EKS/ingress.yaml
                         '
-                        '''
+                        """
                     }
                 }
             }
+        //        stage('Deploy EKS') {
+        //    environment {
+        //        BUILDER_IP = credentials('builder-private-ip')
+        //        DOCKER_CREDS = credentials('dockerhub-creds')
+        //    }
+        //    steps {
+        //        sshagent(['builder-private-key']) {
+        //            sh label: 'Configure and Deploy to EKS', script: '''
+        //                ssh -o StrictHostKeyChecking=no ubuntu@$BUILDER_IP <<EOF
+        //                    set -e  # Fail fast if any command fails
+        //
+        //                    echo "Changing to EKS directory..."
+        //                    cd ~/Builder-server/EKS
+        //
+        //                    echo "Configuring kubeconfig..."
+        //                    aws eks update-kubeconfig --region eu-north-1 --name API_EKS_ThreatGPT
+        //
+        //                   echo "Setting new image in deployment..."
+        //                   kubectl set image deployment/fastapi-app fastapi="$DOCKER_CREDS_USR/$JOB_NAME:v1.$BUILD_ID" --record
+        //
+        //                    echo "Rollout..."
+        //                    kubectl rollout status deployment/fastapi-app
+        //
+        //                    echo "Applying ingress.yaml..."
+        //                    kubectl apply -f ~/EKS/ingress.yaml
+        //                EOF
+        //            '''
+        //        }
+        //    }
+        //}
         }
         stage('Archive Reports') {
             // Seventh Stage: Archive generated reports
