@@ -6,6 +6,12 @@ echo "${jenkins_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
 chown -R ubuntu:ubuntu /home/ubuntu/.ssh
 chmod 600 /home/ubuntu/.ssh/authorized_keys
 
+# Wait until network is available
+until ping -c1 archive.ubuntu.com &>/dev/null; do
+  echo "Waiting for internet connection..."
+  sleep 2
+done
+
 # Docker
 apt update -y
 apt-get install -y docker.io

@@ -135,6 +135,14 @@ resource "aws_security_group" "sg_JENKINS" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    # Only allow ALB to hit Jenkins on port 8080
+    from_port    = 8080
+    to_port      = 8080
+    protocol     = "tcp"
+    security_groups = [aws_security_group.sg_ALB_JENKINS.id]
+  }
+
   tags = {
     Name = "sg_JENKINS"
   }
@@ -273,5 +281,37 @@ resource "aws_security_group" "sg_BUILDER" {
 
   tags = {
     Name = "sg_BUILDER"
+  }
+}
+
+# 7th SG ------------------------------------------------------------------------------- ALB_JENKINS SG
+
+resource "aws_security_group" "sg_ALB_JENKINS" {
+  name          = "alb_jenkins_sg"
+  description   = "Allow GitHub webhook IPs to Jenkins through ALB"
+  vpc_id        = aws_vpc.my_main_vpc.id
+
+  ingress {
+    description  = "GitHub Webhooks"
+    from_port    = 80
+    protocol     = "tcp"
+    to_port      = 80
+    cidr_blocks = [
+      "192.30.252.0/22",
+      "185.199.108.0/22",
+      "140.82.112.0/20",
+      "143.55.64.0/20"
+    ]
+  }
+
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    cidr_blocks     = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "ALB_JENKINS_sg"
   }
 }

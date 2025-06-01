@@ -18,6 +18,11 @@ output "bastion_public_ip" {
     value = aws_instance.my_bastion_EC2_instance.public_ip
 }
 
+output "jenkins_webhook_url" {
+    value = "http://${aws_lb.JENKINS_alb.dns_name}/github-webook"
+    description = "Public URL to set as the GitHub webhook (domain is dns ALB)"
+}
+
 data "template_file" "prometheus_config" {
     template = file("${path.module}/prometheus.yml.tpl")
     vars = {

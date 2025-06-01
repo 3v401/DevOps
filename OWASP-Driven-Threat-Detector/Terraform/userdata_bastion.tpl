@@ -4,6 +4,12 @@
 # Minimal configuration to minimize attack surface
 exec > >(tee /var/log/userdata-bastion.log | logger -t userdata -s 2>/dev/console) 2>&1
 
+# Wait until network is available
+until ping -c1 archive.ubuntu.com &>/dev/null; do
+  echo "Waiting for internet connection..."
+  sleep 2
+done
+
 apt update && apt -y upgrade
 apt install -y openssh-server
 # fail2ban for brute-force protection
