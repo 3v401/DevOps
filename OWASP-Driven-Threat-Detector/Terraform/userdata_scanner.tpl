@@ -16,7 +16,7 @@ mkdir -p /opt/owasp
 cd /opt/owasp
 curl -L -o dependency-check.zip https://github.com/jeremylong/DependencyCheck/releases/latest/download/dependency-check-8.4.0-release.zip
 unzip dependency-check.zip
-ln -s dependency-check/bin/dependency-check.sh /usr/local/bin/dependency-check
+ln -s /opt/owasp/dependency-check/bin/dependency-check.sh /usr/local/bin/dependency-check.sh
 
 # OWASP ZAP (Daemon mode)
 apt install -y snapd

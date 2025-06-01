@@ -224,6 +224,29 @@ resource "aws_lb_listener_rule" "JENKINS_alb_webhook_rule" {
   }
 }
 
+resource "aws_lb_listener_rule" "JENKINS_allow_admin_ui" {
+  listener_arn = aws_lb_listener.JENKINS_alb_listener.arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.JENKINS_alb_tg.arn
+  }
+
+  condition {
+    source_ip {
+      values = [var.my_ip]
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = ["/*"]
+    }
+  }
+}
+
+
 # ALB Target Group: Bridge between the ALB and the backend instance
 # The Target Group is where the ALB forwards requests
 
