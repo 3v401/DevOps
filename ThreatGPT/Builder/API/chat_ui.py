@@ -34,7 +34,7 @@ if st.button("Analyze"):
 
                 # Send content + input_type to backend
                 response = requests.post(
-                    "https://myowaspproject3v401.com//analyze",
+                    "http://localhost:8000/analyze",
                     files = files, # Here goes either content or file
                     data = data    # Input type
                 )
