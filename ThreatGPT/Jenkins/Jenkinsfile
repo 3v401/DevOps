@@ -118,6 +118,21 @@ pipeline {
                 }
             }
         }
+        stage('Render deployment.yaml') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP'),
+                    string(credentialsId: 'aws-account-id', variable: 'AWS_ACCOUNT_ID')
+                ]) {
+                    sshagent(['builder-private-key']) {
+                        sh """
+                        ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} \\
+                            'sed "s|\\\${AWS_USER}|${AWS_ACCOUNT_ID}|g" /home/ubuntu/Builder/EKS/deployment.yaml.tpl > /home/ubuntu/Builder/EKS/deployment.yaml'
+                        """
+                    }
+                }
+            }
+        }
         stage('Deploy EKS') {
             steps {
                 withCredentials([
@@ -127,7 +142,7 @@ pipeline {
                         ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
                             aws eks update-kubeconfig --region eu-north-1 --name staging-eks_demo --profile developer && 
                             cd /home/ubuntu/Builder/EKS && 
-                            kubectl apply -f deployment.yaml.tpl && 
+                            kubectl apply -f deployment.yaml && 
                             kubectl apply -f service.yaml
                         '
                         """

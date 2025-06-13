@@ -34,7 +34,7 @@ if st.button("Analyze"):
 
                 # Send content + input_type to backend
                 response = requests.post(
-                    "http://127.0.0.1:8000/analyze",
+                    "https://myowasproject3v401.com/analyze",
                     files = files, # Here goes either content or file
                     data = data    # Input type
                 )
