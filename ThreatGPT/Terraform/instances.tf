@@ -256,6 +256,11 @@ data "template_file" "eks_deployment" {
   }
 }
 
+resource "local_file" "eks_deployment_yaml" {
+  content  = data.template_file.eks_deployment.rendered
+  filename = "${path.module}/../Builder/EKS/deployment.yaml"
+}
+
 resource "aws_instance" "my_builder_EC2_instance" {
   ami           = data.aws_ami.my_main_ubuntu_EC2_data.id
   instance_type = "t3.micro"

@@ -48,9 +48,9 @@ pipeline {
                 withCredentials([string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP')]) {
                     sshagent(['builder-private-key']) {
                         sh """
-                        scp -o StrictHostKeyChecking=no -r ThreatGPT/Builder-server ubuntu@${BUILDER_IP}:/home/ubuntu/
+                        scp -o StrictHostKeyChecking=no -r ThreatGPT/Builder ubuntu@${BUILDER_IP}:/home/ubuntu/
                         ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
-                            cd /home/ubuntu/Builder-server/API &&
+                            cd /home/ubuntu/Builder/API &&
                             docker build -t "$JOB_NAME:v1.$BUILD_ID" .
                         '
                         """
@@ -126,8 +126,8 @@ pipeline {
                         sh """
                         ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
                             aws eks update-kubeconfig --region eu-north-1 --name staging-eks_demo --profile developer && 
-                            cd /home/ubuntu/Builder-server/EKS && 
-                            kubectl apply -f deployment.yaml && 
+                            cd /home/ubuntu/Builder/EKS && 
+                            kubectl apply -f deployment.yaml.tpl && 
                             kubectl apply -f service.yaml
                         '
                         """
