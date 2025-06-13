@@ -2,7 +2,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
- name: fastapi-ingress
+ name: threatgpt-ingress
  annotations:
   kubernetes.io/ingress.class: alb
   alb.ingress.kubernetes.io/scheme: internet-facing
@@ -10,6 +10,7 @@ metadata:
   alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
   alb.ingress.kubernetes.io/subnets: ${SUBNET_1}, ${SUBNET_2}
   alb.ingress.kubernetes.io/healthcheck-path: /health
+  external-dns.alpha.kubernetes.io/hostname: ${MY_DOMAIN}
 spec:
  rules:
   - host: myowaspproject3v401.com
@@ -19,6 +20,6 @@ spec:
           pathType: Prefix
           backend:
             service:
-              name: fastapi-app
+              name: threatgpt-service
               port:
                 number: 80

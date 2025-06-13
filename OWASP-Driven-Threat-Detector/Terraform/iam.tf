@@ -280,3 +280,44 @@ resource "aws_iam_user_policy_attachment" "attach_developer_policy" {
   user          = "developer"
   policy_arn    = aws_iam_policy.developer_eks_access.arn
 }
+
+
+# ------------------------------------------------------------------------------------------------------------ PODS
+
+# Required to make Terraform wait 60 seconds for EKS internal services to be ready 
+resource "null_resource" "wait_for_cluster" {
+  provisioner "local-exec" {
+    command = "sleep 60"
+  }
+
+  depends_on = [module.eks]
+}
+
+# Link the ALB controller pod to its IAM role
+resource "kubernetes_service_account" "alb_sevice_account_pods" {
+  provider = kubernetes.eks
+  metadata {
+    name              = "aws-load-balancer-controller"
+    namespace         = "kube-system"
+    annotations       = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.ALB_controller.arn
+    }
+  }
+
+  depends_on = [
+    # This dependency ensures the service account is created only after
+    # the EKS cluster is ready and its API is responsive.
+    null_resource.wait_for_cluster,
+    null_resource.update_kubeconfig, # Ensures kubeconfig is updated
+    null_resource.wait_for_eks       # Ensures EKS API is reachable
+  ]
+}
+
+resource "null_resource" "print_kubeconfig" {
+  # Debug print of the current kubeconfig context
+  provisioner "local-exec" {
+    command = "kubectl config current-context && kubectl get nodes"
+  }
+
+  depends_on = [null_resource.update_kubeconfig]
+}

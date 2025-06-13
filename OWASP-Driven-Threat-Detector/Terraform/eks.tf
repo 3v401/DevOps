@@ -68,6 +68,7 @@ module "eks" {
 
   providers = {
     kubernetes = kubernetes.null
+  #   # kubernetes = kubernetes
   }
 
   aws_auth_users = [
@@ -95,4 +96,43 @@ module "eks" {
       iam_role_arn = aws_iam_role.eks_node_group_iam_role.arn
     }
   }
+}
+
+# resource "kubernetes_config_map_v1_data" "aws_auth_config_map" {
+
+#   metadata {
+#     name      = "aws-auth"
+#     namespace = "kube-system"
+#   }
+
+#   data = {
+#     mapUsers = yamlencode([
+#       {
+#         userarn  = "arn:aws:iam::039612864283:user/developer"
+#         username = "developer"
+#         groups   = ["system:masters"]
+#       }
+#     ])
+#     mapRoles = yamlencode([
+#       {
+#         rolearn  = aws_iam_role.eks_node_group_iam_role.arn
+#         username = "system:node:{{EC2PrivateDNSName}}"
+#         groups   = ["system:bootstrappers", "system:nodes"]
+#       }
+#     ])
+#   }
+
+#   depends_on = [
+#     module.eks, # Ensure the EKS cluster itself is done creating
+#     null_resource.update_kubeconfig,
+#     null_resource.wait_for_eks,
+#   ]
+# }
+
+resource "null_resource" "update_kubeconfig" {
+  provisioner "local-exec" {
+    command = "aws eks --region eu-north-1 update-kubeconfig --name ${module.eks.cluster_name} --profile developer"
+  }
+
+  depends_on = [module.eks]
 }

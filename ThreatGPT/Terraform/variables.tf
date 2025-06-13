@@ -1,3 +1,7 @@
+# ----------------------------------------------------------------
+# variables.tf
+# ----------------------------------------------------------------
+
 variable "my_ip" {
   description = "Your public IP with /32 mask"
   type        = string
@@ -46,4 +50,24 @@ variable "MY_DOMAIN" {
 variable "CLOUDFLARE_TOKEN" {
   description = "Cloudflre token for domain to pod connection"
   type        = string
+}
+
+variable "AWS_ACCESS_KEY_ID" {
+  description = "AWS Access Key ID"
+  type        = string
+}
+
+variable "AWS_SECRET_ACCESS_KEY" {
+  description = "AWS Secret Key ID"
+  type        = string
+}
+
+variable "OPENAI_API_KEY" {
+  description = "OpenAI API Key"
+  type = string
+}
+
+variable "AWS_USER" {
+  description = "AWS user"
+  type = string
 }

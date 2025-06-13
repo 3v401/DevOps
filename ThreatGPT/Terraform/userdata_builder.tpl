@@ -1,4 +1,5 @@
 #!/bin/bash
+exec > >(tee /var/log/userdata-builder.log | logger -t user-data -s 2>/dev/console) 2>&1
 # Add Bastion and Jenkins ssh connection internally:
 mkdir -p /home/ubuntu/.ssh
 echo "${bastion_internal_pubkey}" >> /home/ubuntu/.ssh/authorized_keys
@@ -50,13 +51,13 @@ kubectl create namespace kube-system
 
 # Install ALB Controller via Helm
 
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-    -n kube-system \
-    --set clusterName=API_EKS_ThreatGPT \
-    --set serviceAccount.create=false \
-    --set region=eu-north-1 \
-    --set vpcId=${VPC_ID} \
-    --set serviceAccount.name=aws-load-balancer-controller
+# helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+#     -n kube-system \
+#     --set clusterName=API_EKS_ThreatGPT \
+#     --set serviceAccount.create=false \
+#     --set region=eu-north-1 \
+#     --set vpcId=${VPC_ID} \
+#     --set serviceAccount.name=aws-load-balancer-controller
 
 # Automate DNS with ExternalDNS
 helm repo add bitnami https://charts.bitnami.com/bitnami
@@ -93,3 +94,23 @@ EOF
 systemctl daemon-reexec
 systemctl enable node_exporter
 systemctl start node_exporter
+
+sudo -u ubuntu mkdir -p /home/ubuntu/.aws/
+sudo -u ubuntu bash -c "cat <<EOF > /home/ubuntu/.aws/credentials
+[developer]
+aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+EOF"
+sudo -u ubuntu bash -c "cat <<EOF > /home/ubuntu/.aws/config
+[profile developer]
+region = eu-north-1
+output = json
+EOF"
+
+# Connect to the eks cluster
+sudo -u ubuntu HOME=/home/ubuntu aws eks update-kubeconfig --region eu-north-1 --name staging-eks_demo --profile developer
+# Add OpenAI api secret
+sudo -u ubuntu kubectl create secret generic openai-secret --from-literal=api-key=${OPENAI_API_KEY}
+
+# Authenticate Docker to ECR
+aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin ${AWS_USER}.dkr.ecr.eu-north-1.amazonaws.com

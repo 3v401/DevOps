@@ -275,3 +275,112 @@ resource "aws_lb_target_group_attachment" "JENKINS_alb_attachment" {
   target_id             = aws_instance.my_jenkins_EC2_instance.id
   port                  = 8080
 }
+
+# -------------------------------------------------------------------------------------------------------------------------------- CONNECTION PODS TO CLOUDFLARE
+# New private subnets are required to avoid "resource.AlreadyAssociated" between EKS Pods
+# and non-pod (EC2 instances) elements
+
+resource "aws_subnet" "my_pods_private_subnet_1" {
+  vpc_id                 = aws_vpc.my_main_vpc.id
+  cidr_block             = "10.0.5.0/24"
+  map_public_ip_on_launch =  false
+  availability_zone       = "eu-north-1a"
+
+  tags = {
+    Name = "Pods private subnet 1"
+  }
+}
+
+resource "aws_subnet" "my_pods_private_subnet_2" {
+  vpc_id                    = aws_vpc.my_main_vpc.id
+  cidr_block                = "10.0.6.0/24"
+  map_public_ip_on_launch   = false
+  availability_zone         = "eu-north-1b"
+
+  tags = {
+    Name = "Pods private subnet 2"
+  }
+}
+
+# Elastic IP for NAT Gateway
+resource "aws_eip" "nat_eip_pods" {
+  domain = "vpc"
+}
+
+# NAT Gateway in Public Subnet
+resource "aws_nat_gateway" "nat_gateway_pods" {
+  allocation_id = aws_eip.nat_eip_pods.id
+  # Must be in a public subnet that has route to the I.Gateway
+  subnet_id     = aws_subnet.my_public_subnet_1.id
+
+  tags = {
+    Name = "NAT-Gateway for Pods"
+  }
+}
+
+# Route Tabke for private subnets
+resource "aws_route_table" "private_route_table_pods" {
+  vpc_id        = aws_vpc.my_main_vpc.id
+
+  route {
+    cidr_block    = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_gateway_pods.id
+  }
+
+  tags = {
+    Name = "Private-route for Pods"
+  }
+}
+
+# Associate route table with private subnet
+resource "aws_route_table_association" "private_pods_1" {
+  subnet_id         = aws_subnet.my_pods_private_subnet_1.id
+  route_table_id    = aws_route_table.private_route_table_pods.id
+}
+
+resource "aws_route_table_association" "private_pods_2" {
+  subnet_id         = aws_subnet.my_pods_private_subnet_2.id
+  route_table_id    = aws_route_table.private_route_table_pods.id
+}
+
+# -------------------------------------------------------------------------------------------------------------------------------- ThreatGPT Exposure to CloudFlare
+
+# ALB Ingress Controller
+resource "helm_release" "alb_ingress_controller" {
+  name          = "aws-load-balancer-controller"
+  repository    = "https://aws.github.io/eks-charts"
+  chart         = "aws-load-balancer-controller"
+  namespace     = "kube-system"
+  version       = "1.7.1"
+
+  set {
+    name    = "clusterName"
+    value   = module.eks.cluster_name
+  }
+
+  set {
+    name = "region"
+    value = "eu-north-1"
+  }
+
+  set {
+    name = "vpcId"
+    value = aws_vpc.my_main_vpc.id
+  }
+
+  set {
+    name = "serviceAccount.create"
+    value = "false"
+  }
+
+  set {
+    name = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
+
+  depends_on = [
+    null_resource.update_kubeconfig,
+    null_resource.wait_for_eks,
+    kubernetes_service_account.alb_sevice_account_pods # Crucial: ALB controller needs its service account
+  ]
+}

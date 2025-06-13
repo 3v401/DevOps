@@ -2,14 +2,14 @@
 apiVersion: v1
 kind: Service
 metadata:
- name: fastapi-service
+ name: threatgpt-service
  labels:
-  app: fastapi-app
+  app: threatgpt-app
 spec:
  type: ClusterIP
  ports:
   - protocol: TCP
     port: 80                        # Port exposed outside the cluster
-    targetPort: 8000                # Port the app listens on inside (check Dockerfile)
+    targetPort: 8501                # Port Streamlit renders with chat UI that user interacts, the app listens on inside (check Dockerfile)
  selector:
-  app: fastapi                      # Link the Service to pods with label 'app: fastapi'
+  app: threatgpt                  # Link the Service to pods with label 'app: fastapi'

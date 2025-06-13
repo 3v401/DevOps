@@ -6,7 +6,7 @@ data "aws_ami" "my_main_ubuntu_EC2_data" {
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-20250305"]
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
   }
 }
 
@@ -27,6 +27,7 @@ data "template_file" "ingress_yaml" {
   vars = {
     SUBNET_1 = aws_subnet.my_public_subnet_1.id
     SUBNET_2 = aws_subnet.my_public_subnet_2.id
+    MY_DOMAIN = var.MY_DOMAIN
   }
 }
 
