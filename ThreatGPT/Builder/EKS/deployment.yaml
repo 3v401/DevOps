@@ -23,3 +23,7 @@ spec:
             secretKeyRef:
               name: openai-secret
               key: api-key
+        - name: STREAMLIT_SERVER_ENABLECORS
+          value: "false"
+        - name: STREAMLIT_SERVER_ENABLEXSFPROTECTION
+          value: "false"
