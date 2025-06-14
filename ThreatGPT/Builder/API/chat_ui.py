@@ -34,7 +34,7 @@ if st.button("Analyze"):
 
                 # Send content + input_type to backend
                 response = requests.post(
-                    "http://ac84912d27e4b46a89c67aae6a43c4d5-796175251.eu-north-1.elb.amazonaws.com/analyze",
+                    "http://localhost:8000/analyze",
                     files = files, # Here goes either content or file
                     data = data    # Input type
                 )
