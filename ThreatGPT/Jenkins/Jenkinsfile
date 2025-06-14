@@ -136,11 +136,18 @@ pipeline {
         stage('Deploy EKS') {
             steps {
                 withCredentials([
-                    string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP')]) {
+                    string(credentialsId: 'builder-private-ip', variable: 'BUILDER_IP'),
+                    string(credentialsId: 'openai-api-key', variable: 'OPENAI_API_SECRET')
+                ]) {
                     sshagent(['builder-private-key']) {
                         sh """
                         ssh -o StrictHostKeyChecking=no ubuntu@${BUILDER_IP} '
+                            
                             aws eks update-kubeconfig --region eu-north-1 --name staging-eks_demo --profile developer && 
+                            
+                            kubectl delete secret openai-secret --ignore-not-found && 
+                            kubectl create secret generic openai-secret --from-literal=api-key=${OPENAI_API_SECRET} &&
+
                             cd /home/ubuntu/Builder/EKS && 
                             kubectl apply -f deployment.yaml && 
                             kubectl apply -f service.yaml

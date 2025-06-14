@@ -253,6 +253,7 @@ data "template_file" "eks_deployment" {
 
   vars = {
     AWS_USER = var.AWS_USER
+    OPENAI_API_KEY          = var.OPENAI_API_KEY
   }
 }
 
