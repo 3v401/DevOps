@@ -1,5 +1,5 @@
 # 💥 ThreatGPT: Explain, Predict, and Patch API. 💥
-(Post under development)
+**(Post under development)**
 
 
 This project provides an AI-powered API that ingest suspicious logs, misconfigured IaC or risky code snippets and returns:
